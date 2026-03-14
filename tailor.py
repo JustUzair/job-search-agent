@@ -1,20 +1,19 @@
 import os
 import re
 import json
-import shutil
-from datetime import datetime
+import zipfile
+from datetime import datetime, timezone, timedelta
 
 import requests
 from bs4 import BeautifulSoup
-from openai import OpenAI
 
 import db
+import llm
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-RESUME_DIR = os.environ.get("RESUME_DIR", "/app/resume")   # mounted from your Mac
+IST = timezone(timedelta(hours=5, minutes=30))
+RESUME_DIR = os.environ.get("RESUME_DIR", "/app/resume")
 RESUME_OUT_DIR = "/app/data/resumes"
 
-# Files GPT is allowed to modify
 TAILOR_TARGETS = {
     "sections/objective.tex",
     "sections/experience.tex",
@@ -24,19 +23,14 @@ TAILOR_TARGETS = {
     "sections/security.tex",
 }
 
-# Files copied as-is (structure/style, never modified)
 COPY_ONLY = {
-    "resume.tex",
-    "_header.tex",
-    "TLCresume.sty",
-    "sections/education.tex",
-    "sections/certifications.tex",
-    "sections/hobbies.tex",
-    "sections/por.tex",
+    "resume.tex", "_header.tex", "TLCresume.sty",
+    "sections/education.tex", "sections/certifications.tex",
+    "sections/hobbies.tex", "sections/por.tex",
 }
 
 
-def fetch_jd(url: str) -> str:
+def fetch_jd(url):
     try:
         r = requests.get(url, timeout=12, headers={"User-Agent": "Mozilla/5.0"})
         soup = BeautifulSoup(r.text, "html.parser")
@@ -47,8 +41,7 @@ def fetch_jd(url: str) -> str:
         return f"Could not fetch: {e}"
 
 
-def load_resume_files() -> dict[str, str]:
-    """Read all known .tex files from the resume directory."""
+def load_resume_files():
     files = {}
     if not os.path.isdir(RESUME_DIR):
         return files
@@ -60,13 +53,13 @@ def load_resume_files() -> dict[str, str]:
     return files
 
 
-def build_prompt(jd: str, title: str, company: str, files: dict[str, str]) -> str:
+def build_prompt(jd, title, company, files):
     target_content = {k: v for k, v in files.items() if k in TAILOR_TARGETS}
     files_block = "\n\n".join(
         f"### FILE: {path}\n```latex\n{content}\n```"
         for path, content in target_content.items()
     )
-    return f"""You are a resume editor. Tailor these LaTeX resume files for a specific job.
+    return f"""You are a resume editor. Tailor these LaTeX files for this specific job.
 
 JOB: {title} at {company}
 
@@ -76,64 +69,44 @@ JOB DESCRIPTION:
 RESUME FILES:
 {files_block}
 
-INSTRUCTIONS:
-- Reorder bullet points within each job/project to surface the most relevant work first
-- In objective.tex: rewrite the objective to speak directly to this role/company
-- In skills.tex: reorder skill groups so the most relevant ones appear first
-- Surface bullets matching the JD's tech stack or responsibilities
-- Do NOT invent experience, skills, or tools the candidate doesn't already have
-- Do NOT change company names, job titles, dates, or institution names
-- Keep all LaTeX commands, environments, and formatting intact
-- Only return files that actually changed — skip files that need no modifications
+RULES:
+- Reorder bullets to surface most relevant experience first
+- Rewrite objective.tex to speak directly to this role
+- Reorder skills.tex so most relevant skills appear first
+- Do NOT invent skills, experience, or tools
+- Do NOT change company names, job titles, or dates
+- Keep all LaTeX commands intact
+- Return ONLY files that actually changed
 
-Respond with ONLY a JSON object mapping file paths to their new full content.
-No explanation, no markdown fences around the JSON itself.
-Example:
-{{
-  "sections/objective.tex": "...full new content...",
-  "sections/skills.tex": "...full new content..."
-}}"""
+Respond with ONLY a JSON object: {{"sections/objective.tex": "...full content...", ...}}
+No markdown fences around the JSON."""
 
 
-def save_tailored(company: str, original_files: dict[str, str], updated_files: dict[str, str]) -> str:
-    """Write a complete resume folder with tailored files merged in. Returns output dir path."""
-    os.makedirs(RESUME_OUT_DIR, exist_ok=True)
-    safe = re.sub(r"[^\w\-]", "_", company.lower())[:30]
-    ts = datetime.now().strftime("%Y%m%d_%H%M")
-    out_dir = os.path.join(RESUME_OUT_DIR, f"{safe}_{ts}")
-    os.makedirs(os.path.join(out_dir, "sections"), exist_ok=True)
-
-    all_paths = set(original_files.keys()) | set(updated_files.keys())
-    for rel_path in all_paths:
-        content = updated_files.get(rel_path) or original_files.get(rel_path, "")
-        out_path = os.path.join(out_dir, rel_path)
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        with open(out_path, "w") as f:
-            f.write(content)
-
-    return out_dir
+def make_zip(out_dir, company):
+    """Zip the output folder so it can be uploaded directly to Overleaf."""
+    zip_path = out_dir + ".zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, _, fnames in os.walk(out_dir):
+            for fname in fnames:
+                abs_path = os.path.join(root, fname)
+                arcname = os.path.relpath(abs_path, out_dir)
+                zf.write(abs_path, arcname)
+    return zip_path
 
 
-def tailor(job_id: str | None = None, url: str | None = None, raw_jd: str | None = None) -> dict:
-    if not OPENAI_API_KEY:
-        return {"error": "OPENAI_API_KEY not set"}
-
+def tailor(job_id=None, url=None, raw_jd=None):
     files = load_resume_files()
     if not files:
-        return {"error": f"No resume files found at {RESUME_DIR}. Check your volume mount."}
+        return {"error": f"No resume files found at {RESUME_DIR}. Check volume mount."}
 
-    client = OpenAI(api_key=OPENAI_API_KEY)
-
-    # Resolve JD
     if job_id:
         job = db.get_job(job_id)
         if not job:
-            return {"error": f"Job {job_id} not in DB"}
+            return {"error": f"Job {job_id} not found"}
         title, company = job["title"], job["company"]
         jd = job["description"] if len(job["description"]) > 200 else fetch_jd(job["url"])
     elif url:
-        title = "Role"
-        company = url.split("/")[2] if url.count("/") >= 2 else "company"
+        title, company = "Role", url.split("/")[2] if url.count("/") >= 2 else "company"
         jd = fetch_jd(url)
     elif raw_jd:
         title, company, jd = "Role", "Company", raw_jd
@@ -142,28 +115,42 @@ def tailor(job_id: str | None = None, url: str | None = None, raw_jd: str | None
 
     prompt = build_prompt(jd, title, company, files)
 
-    resp = client.chat.completions.create(
-        model="gpt-4o",
-        temperature=0.3,
-        max_tokens=4096,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    # Use gpt-4o / claude-sonnet for tailoring — needs more reasoning than scoring
+    original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+    os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
 
-    raw = resp.choices[0].message.content.strip()
+    raw = llm.chat(prompt, max_tokens=4096, temperature=0.3)
+
+    os.environ["MODEL_NAME"] = original_model  # restore
+
     raw = re.sub(r"^```[a-z]*\n?", "", raw)
     raw = re.sub(r"\n?```$", "", raw).strip()
 
     try:
-        updated_files: dict[str, str] = json.loads(raw)
+        updated_files = json.loads(raw)
     except json.JSONDecodeError as e:
-        return {"error": f"GPT returned invalid JSON: {e}\nRaw output: {raw[:300]}"}
+        return {"error": f"LLM returned invalid JSON: {e}\n{raw[:200]}"}
 
-    # Only accept paths we know about — never write arbitrary files
     updated_files = {k: v for k, v in updated_files.items() if k in TAILOR_TARGETS}
 
-    out_dir = save_tailored(company, files, updated_files)
+    # Write output folder
+    os.makedirs(RESUME_OUT_DIR, exist_ok=True)
+    safe = re.sub(r"[^\w\-]", "_", company.lower())[:30]
+    ts = datetime.now(IST).strftime("%Y%m%d_%H%M")
+    out_dir = os.path.join(RESUME_OUT_DIR, f"{safe}_{ts}")
+    os.makedirs(os.path.join(out_dir, "sections"), exist_ok=True)
+
+    for rel_path in set(files) | set(updated_files):
+        content = updated_files.get(rel_path) or files.get(rel_path, "")
+        out_path = os.path.join(out_dir, rel_path)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w") as f:
+            f.write(content)
+
+    zip_path = make_zip(out_dir, company)
 
     return {
+        "zip_path": zip_path,
         "out_dir": out_dir,
         "company": company,
         "title": title,
