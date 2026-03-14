@@ -1,0 +1,14 @@
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    volumes:
+      - ./data:/app/data          # SQLite DB + tailored resumes live here on your Mac
+      - ./resume:/app/resume:ro   # your full Overleaf project folder, read-only
+      - ./bot.py:/app/bot.py      # mount code so changes only need a restart, not rebuild
+      - ./scraper.py:/app/scraper.py
+      - ./tailor.py:/app/tailor.py
+      - ./db.py:/app/db.py
+    env_file:
+      - .env
+    command: python bot.py
