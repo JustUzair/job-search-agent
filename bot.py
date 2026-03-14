@@ -51,6 +51,7 @@ def main_menu_keyboard():
          InlineKeyboardButton("💰 Funded cos", callback_data="funded")],
         [InlineKeyboardButton("⚙️ Config", callback_data="show_config"),
          InlineKeyboardButton("📓 Journal", callback_data="journal_menu")],
+        [InlineKeyboardButton("💾 Backup DB", callback_data="backup")],
     ])
 
 
@@ -521,6 +522,33 @@ Be specific and concise. Format as a clear numbered list.""",
 
 # ── Fallback / guard ──────────────────────────────────────────────────────────
 
+
+async def cmd_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await _do_backup(context.application)
+
+
+async def cb_backup(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer("Preparing backup...")
+    await _do_backup(context.application)
+
+
+async def _do_backup(app):
+    import io
+    from datetime import datetime, timezone, timedelta
+    IST = timezone(timedelta(hours=5, minutes=30))
+    ts = datetime.now(IST).strftime("%Y%m%d_%H%M")
+    db_path = os.environ.get("DB_PATH", "/app/data/jobs.db")
+    if not os.path.exists(db_path):
+        await _send(app, "No DB file found yet.")
+        return
+    with open(db_path, "rb") as f:
+        await app.bot.send_document(
+            chat_id=CHAT_ID,
+            document=InputFile(f, filename=f"jobs_backup_{ts}.db"),
+            caption=f"💾 DB backup — {ts} IST\n\nTo restore: replace jobs.db in ./data/ and restart.",
+            reply_markup=main_menu_keyboard(),
+        )
+
 async def cb_noop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
 
@@ -549,6 +577,7 @@ def main():
     app.add_handler(CommandHandler("config",     cmd_config,     filters=own))
     app.add_handler(CommandHandler("journal",    cmd_journal,    filters=own))
     app.add_handler(CommandHandler("resumediff", cmd_resumediff, filters=own))
+    app.add_handler(CommandHandler("backup",     cmd_backup,     filters=own))
 
     # Inline button callbacks
     app.add_handler(CallbackQueryHandler(cb_menu,        pattern="^menu$"))
@@ -561,6 +590,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cb_funded,      pattern="^funded$"))
     app.add_handler(CallbackQueryHandler(cb_show_config, pattern="^show_config$"))
     app.add_handler(CallbackQueryHandler(cb_journal_menu,pattern="^journal_menu$"))
+    app.add_handler(CallbackQueryHandler(cb_backup,      pattern="^backup$"))
     app.add_handler(CallbackQueryHandler(cb_noop,        pattern="^noop$"))
 
     # Security

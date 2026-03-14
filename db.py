@@ -21,6 +21,19 @@ def get_conn():
     return conn
 
 
+def _migrate(conn):
+    """Add missing columns to existing tables without destroying data."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
+    migrations = [
+        ("work_type", "TEXT DEFAULT ''"),
+        ("location",  "TEXT DEFAULT ''"),
+    ]
+    for col, typedef in migrations:
+        if col not in existing:
+            conn.execute(f"ALTER TABLE jobs ADD COLUMN {col} {typedef}")
+    conn.commit()
+
+
 def init_db():
     conn = get_conn()
     conn.executescript("""
@@ -56,7 +69,7 @@ def init_db():
             created_at TEXT
         );
     """)
-    conn.commit()
+    _migrate(conn)  # safe to run every startup
     existing = conn.execute("SELECT key FROM config WHERE key = 'search'").fetchone()
     if not existing:
         conn.execute("INSERT INTO config (key, value) VALUES ('search', ?)",
@@ -179,3 +192,16 @@ def get_journal_entries(limit=30):
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def backup_to_bytes() -> bytes:
+    """Return the raw SQLite DB file as bytes for sending via Telegram."""
+    conn = get_conn()
+    import io
+    buf = io.BytesIO()
+    for chunk in conn.iterdump():
+        pass  # iterdump is text; use backup API instead
+    conn.close()
+
+    with open(DB_PATH, "rb") as f:
+        return f.read()
