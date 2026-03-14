@@ -195,9 +195,7 @@ async def _show_jobs(app_or_query, is_callback=False):
             await _send(app_or_query, text, main_menu_keyboard())
         return
 
-    blocks = [_job_block(j, i + 1) for i, j in enumerate(jobs)]
-
-    def _job_block(job, idx):
+    def fmt(job, idx):
         em = _score_emoji(job.get("score", 0))
         wt = job.get("work_type", "") or ""
         wt_tag = f" `{wt}`" if wt and wt != "unspecified" else ""
@@ -208,19 +206,18 @@ async def _show_jobs(app_or_query, is_callback=False):
             f"   `{job['id']}`"
         )
 
-    blocks = [_job_block(j, i + 1) for i, j in enumerate(jobs)]
-    text = f"📬 *{len(jobs)} jobs in queue*\n\nUse `/tailor <id>` or tap a job:\n\n" + "\n\n".join(blocks)
+    blocks = [fmt(j, i + 1) for i, j in enumerate(jobs)]
+    text = f"📬 *{len(jobs)} jobs in queue*\n\nTap ✍️ to tailor, 🔗 to open, ⏭ to skip:\n\n" + "\n\n".join(blocks)
 
-    # Quick-action buttons for first 5 jobs
+    # Per-job buttons: tailor | link | skip
     kbd_rows = []
-    for job in jobs[:5]:
-        kbd_rows.append([
-            InlineKeyboardButton(
-                f"✍️ {job['company'][:20]}",
-                callback_data=f"tailor_{job['id']}"
-            ),
+    for job in jobs[:10]:
+        row = [
+            InlineKeyboardButton(f"✍️ {job['company'][:18]}", callback_data=f"tailor_{job['id']}"),
+            InlineKeyboardButton("🔗", url=job["url"]),
             InlineKeyboardButton("⏭", callback_data=f"skip_{job['id']}"),
-        ])
+        ]
+        kbd_rows.append(row)
     kbd_rows.append([InlineKeyboardButton("🏠 Menu", callback_data="menu")])
     kbd = InlineKeyboardMarkup(kbd_rows)
 
