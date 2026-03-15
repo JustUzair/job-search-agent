@@ -507,28 +507,78 @@ def passes_filters(job: dict, cfg: dict) -> bool:
 # ── Scoring ───────────────────────────────────────────────────────────────────
 
 def score_job(job: dict) -> tuple[int, str]:
+    """Synchronous single-job scoring fallback (used when batching unavailable)."""
     candidate_profile = db.get_profile()
-    data = llm.chat_json(f"""Score this job for the candidate (0-100).
-
-CANDIDATE:
-{candidate_profile}
-
-JOB:
-Title: {job['title']}
-Company: {job['company']}
-Work type: {job.get('work_type','?')}
-Location: {job.get('location','?')}
-Description: {job['description'][:1200]}
-
-Rules:
-- Score 0 if the role requires physical presence (onsite/in-office) anywhere
-- Score 0 if it requires 5+ years experience for a junior/mid candidate
-- Score based on tech stack overlap, seniority match, remote availability
-
-Reply ONLY valid JSON: {{"score": <int>, "reason": "<max 100 chars>"}}""",
-        max_tokens=80,
-    )
+    data = llm.chat_json(llm._build_score_prompt(job, candidate_profile), max_tokens=80)
     return int(data.get("score", 0)), str(data.get("reason", ""))[:120]
+
+
+def _submit_batch_scoring(jobs: list, now: str) -> dict:
+    """
+    Submit jobs for batch scoring via Anthropic Message Batches API (50% off).
+    Saves jobs with status='pending_score'. Returns scrape summary immediately.
+    Scores arrive later via poll_pending_batches().
+    """
+    from datetime import datetime, timezone
+    candidate_profile = db.get_profile()
+
+    batch_id = llm.create_scoring_batch(jobs, candidate_profile)
+    if not batch_id:
+        return None  # provider doesn't support batching
+
+    # Save all jobs as pending_score so they show up in DB
+    for job in jobs:
+        job.update(score=0, reason="pending batch scoring", found_at=now,
+                   status="pending_score", batch_id=batch_id)
+        db.save_job(job)
+
+    # Track the batch
+    internal_id = hashlib.md5(batch_id.encode()).hexdigest()[:16]
+    db.save_batch({
+        "id": internal_id,
+        "provider": "anthropic",
+        "batch_id": batch_id,
+        "status": "in_progress",
+        "total_requests": len(jobs),
+        "completed": 0,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    })
+    print(f"[scrape] submitted batch {batch_id} with {len(jobs)} jobs for async scoring")
+    return {"batch_id": batch_id, "jobs_submitted": len(jobs)}
+
+
+def poll_pending_batches() -> dict:
+    """
+    Check all in-progress batches. For completed ones, update job scores.
+    Called by APScheduler every 5 min and by POST /api/batches/poll.
+    Returns summary of what was processed.
+    """
+    pending = db.get_pending_batches()
+    if not pending:
+        return {"checked": 0, "completed": 0, "jobs_scored": 0}
+
+    total_scored = 0
+    completed_count = 0
+
+    for batch in pending:
+        result = llm.poll_batch(batch["batch_id"])
+        if not result or result["status"] == "in_progress":
+            continue
+
+        # Batch is done — update all job scores
+        cfg = db.get_config()
+        threshold = cfg.get("score_threshold", 60)
+
+        for r in result["results"]:
+            status = "new" if r["score"] >= threshold else "filtered"
+            db.update_job_score(r["custom_id"], r["score"], r["reason"], status)
+            total_scored += 1
+
+        db.mark_batch_done(batch["batch_id"], result["status"])
+        completed_count += 1
+        print(f"[batch] {batch['batch_id']}: scored {len(result['results'])} jobs")
+
+    return {"checked": len(pending), "completed": completed_count, "jobs_scored": total_scored}
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -563,20 +613,35 @@ def run_scrape(sources=None):
     filtered = [j for j in title_passed if passes_filters(j, cfg)]
     print(f"[scrape] {len(raw)} raw → {len(title_passed)} title-ok → {len(filtered)} pass filters, scoring...")
 
+    # Skip jobs already in DB (no need to re-score)
+    new_jobs = [j for j in filtered if not db.job_exists(j["id"])]
+    print(f"[scrape] {len(new_jobs)} new jobs to score ({len(filtered) - len(new_jobs)} already in DB)")
+
     threshold = cfg.get("score_threshold", 60)
-    surfaced = []
     now = _now_ist()
 
-    for job in filtered:
-        score, reason = score_job(job)
-        job.update(score=score, reason=reason, found_at=now, status="new")
-        db.save_job(job)
-        if score >= threshold:
-            surfaced.append(job)
+    # 3. Score new jobs — try batch first (50% cheaper), fall back to sync
+    batch_info = None
+    surfaced = []
 
-    # Save title-filtered and search-filtered jobs so they appear in full list
+    if new_jobs:
+        batch_info = _submit_batch_scoring(new_jobs, now)
+
+    if batch_info:
+        # Batch submitted — scores arrive later via poll_pending_batches()
+        print(f"[scrape] batch submitted, scores will arrive async (check /api/batches)")
+    else:
+        # Sync fallback (non-Anthropic provider or empty job list)
+        for job in new_jobs:
+            score, reason = score_job(job)
+            job.update(score=score, reason=reason, found_at=now, status="new")
+            db.save_job(job)
+            if score >= threshold:
+                surfaced.append(job)
+
+    # Save rejected jobs so they appear in "All Results" with reason
     for job in raw:
-        if job not in filtered:
+        if job not in filtered and not db.job_exists(job["id"]):
             if not passes_title_filter(job.get("title", ""), skip_titles):
                 reason = "title filter (non-relevant role)"
             else:
@@ -585,4 +650,8 @@ def run_scrape(sources=None):
             db.save_job(job)
 
     surfaced.sort(key=lambda x: x.get("score", 0), reverse=True)
-    return {"total": len(raw), "filtered": len(filtered), "surfaced": surfaced, "threshold": threshold}
+    result = {"total": len(raw), "filtered": len(filtered), "new": len(new_jobs),
+              "surfaced": surfaced, "threshold": threshold}
+    if batch_info:
+        result["batch"] = batch_info
+    return result

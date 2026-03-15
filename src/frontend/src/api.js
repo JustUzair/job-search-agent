@@ -1,0 +1,104 @@
+const BASE = '/api'
+
+async function request(method, path, body) {
+  const opts = {
+    method,
+    headers: { 'Content-Type': 'application/json' }
+  }
+  if (body !== undefined) opts.body = JSON.stringify(body)
+  const res = await fetch(`${BASE}${path}`, opts)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+export function getJobs(status = 'new', limit = 20, offset = 0) {
+  const params = new URLSearchParams({ status, limit, offset })
+  return request('GET', `/jobs?${params}`)
+}
+
+export function getAllJobs(limit = 50, offset = 0, source = '', status = '') {
+  const params = new URLSearchParams({ limit, offset })
+  if (source) params.set('source', source)
+  if (status) params.set('status', status)
+  return request('GET', `/jobs/all?${params}`)
+}
+
+export function setJobStatus(id, status) {
+  return request('POST', `/jobs/${id}/status`, { status })
+}
+
+export function getJob(id) {
+  return request('GET', `/jobs/${id}`)
+}
+
+export function startScrape(sources = null) {
+  return request('POST', '/scrape', sources ? { sources } : {})
+}
+
+export function getScrapeStatus() {
+  return request('GET', '/scrape/status')
+}
+
+export function tailorJob(params) {
+  return request('POST', '/tailor', params)
+}
+
+export function getVariants() {
+  return request('GET', '/variants')
+}
+
+export function getVariantZipUrl(id) {
+  return `${BASE}/variants/${id}/zip`
+}
+
+export function getVariantPdfUrl(id) {
+  return `${BASE}/variants/${id}/pdf`
+}
+
+export function getFunded(limit = 50) {
+  return request('GET', `/funded?limit=${limit}`)
+}
+
+export function getJournal(limit = 30) {
+  const params = new URLSearchParams({ limit })
+  return request('GET', `/journal?${params}`)
+}
+
+export function addJournalEntry(entry) {
+  return request('POST', '/journal', { entry })
+}
+
+export function getResumeDiff() {
+  return request('POST', '/resumediff', {})
+}
+
+export function getConfig() {
+  return request('GET', '/config')
+}
+
+export function saveConfig(cfg) {
+  return request('PUT', '/config', cfg)
+}
+
+export function getProfile() {
+  return request('GET', '/profile')
+}
+
+export function saveProfile(profile) {
+  return request('PUT', '/profile', { profile })
+}
+
+export function syncProfileFromJournal() {
+  return request('POST', '/profile/sync-from-journal', {})
+}
+
+export function getBatches() {
+  return request('GET', '/batches')
+}
+
+export function pollBatches() {
+  return request('POST', '/batches/poll', {})
+}

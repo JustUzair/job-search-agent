@@ -76,6 +76,24 @@ def _migrate(conn):
         )
     """)
 
+    # LLM batch tracking for async scoring (Anthropic Message Batches)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS llm_batches (
+            id            TEXT PRIMARY KEY,
+            provider      TEXT NOT NULL,
+            batch_id      TEXT NOT NULL,
+            status        TEXT DEFAULT 'in_progress',
+            total_requests INTEGER DEFAULT 0,
+            completed     INTEGER DEFAULT 0,
+            created_at    TEXT,
+            completed_at  TEXT DEFAULT ''
+        )
+    """)
+
+    # Add batch_id to jobs so we know which batch scored them
+    if "batch_id" not in existing_jobs:
+        conn.execute("ALTER TABLE jobs ADD COLUMN batch_id TEXT DEFAULT ''")
+
     conn.commit()
 
 
@@ -153,17 +171,25 @@ def save_job(job):
     conn.execute("""
         INSERT OR IGNORE INTO jobs
         (id, source, title, company, url, description, score, reason,
-         status, work_type, location, posted_at, found_at)
+         status, work_type, location, posted_at, found_at, batch_id)
         VALUES (:id, :source, :title, :company, :url, :description,
-                :score, :reason, :status, :work_type, :location, :posted_at, :found_at)
+                :score, :reason, :status, :work_type, :location, :posted_at, :found_at, :batch_id)
     """, {
         **job,
         "work_type": job.get("work_type", ""),
         "location": job.get("location", ""),
         "posted_at": job.get("posted_at", ""),
+        "batch_id": job.get("batch_id", ""),
     })
     conn.commit()
     conn.close()
+
+
+def job_exists(job_id: str) -> bool:
+    conn = get_conn()
+    row = conn.execute("SELECT 1 FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    conn.close()
+    return row is not None
 
 
 def list_jobs(status="new", limit=50, offset=0):
@@ -480,3 +506,56 @@ def ats_company_exists(company_id: str) -> bool:
     row = conn.execute("SELECT 1 FROM ats_companies WHERE id = ?", (company_id,)).fetchone()
     conn.close()
     return row is not None
+
+
+# ── LLM Batch tracking ──────────────────────────────────────────────────────
+
+def save_batch(batch: dict):
+    conn = get_conn()
+    conn.execute(
+        """INSERT OR REPLACE INTO llm_batches
+           (id, provider, batch_id, status, total_requests, completed, created_at)
+           VALUES (:id, :provider, :batch_id, :status, :total_requests, :completed, :created_at)""",
+        batch,
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_pending_batches() -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM llm_batches WHERE status = 'in_progress' ORDER BY created_at"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def mark_batch_done(batch_id: str, status: str = "completed"):
+    from datetime import datetime, timezone
+    conn = get_conn()
+    conn.execute(
+        "UPDATE llm_batches SET status = ?, completed_at = ? WHERE batch_id = ?",
+        (status, datetime.now(timezone.utc).isoformat(), batch_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_jobs_by_batch(batch_id: str) -> list:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM jobs WHERE batch_id = ?", (batch_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_job_score(job_id: str, score: int, reason: str, status: str = "new"):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE jobs SET score = ?, reason = ?, status = ? WHERE id = ?",
+        (score, reason, status, job_id),
+    )
+    conn.commit()
+    conn.close()
