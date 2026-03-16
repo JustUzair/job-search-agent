@@ -119,3 +119,7 @@ export function getBatches() {
 export function pollBatches() {
     return request("POST", "/batches/poll", {});
 }
+
+export function getSources() {
+    return request("GET", "/sources");
+}

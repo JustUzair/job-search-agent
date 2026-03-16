@@ -551,6 +551,13 @@ def get_jobs_by_batch(batch_id: str) -> list:
     return [dict(r) for r in rows]
 
 
+def get_distinct_sources() -> list:
+    conn = get_conn()
+    rows = conn.execute("SELECT DISTINCT source FROM jobs ORDER BY source").fetchall()
+    conn.close()
+    return [r[0] for r in rows if r[0]]
+
+
 def update_job_score(job_id: str, score: int, reason: str, status: str = "new"):
     conn = get_conn()
     conn.execute(

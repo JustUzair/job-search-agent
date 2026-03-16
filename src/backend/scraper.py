@@ -105,48 +105,63 @@ def scrape_hn_jobs():
     return jobs
 
 
-def scrape_hn_whoishiring():
+def scrape_hn_jobs_page(max_pages=5):
+    """Scrape news.ycombinator.com/jobs — plain HTML, no JS needed.
+
+    Each job row: <tr class="athing submission"> with title in <span class="titleline"><a>,
+    company domain in <span class="sitestr">, date in <span class="age" title="ISO...">.
+    Pagination: <a class='morelink'> with href like 'jobs?next=...&n=31'.
+    """
     jobs = []
+    url = "https://news.ycombinator.com/jobs"
     try:
-        search = requests.get(
-            "https://hn.algolia.com/api/v1/search",
-            params={"query": "who is hiring", "tags": "story,ask_hn", "hitsPerPage": 5},
-            timeout=10,
-        ).json()
-        story = next(
-            (h for h in search.get("hits", []) if "who is hiring" in h.get("title", "").lower()),
-            None,
-        )
-        if not story:
-            return []
-        data = requests.get(
-            f"https://hn.algolia.com/api/v1/items/{story['objectID']}", timeout=10
-        ).json()
-        for child in data.get("children", [])[:120]:
-            text = child.get("text") or ""
-            if len(text) < 80:
-                continue
-            plain = BeautifulSoup(text, "html.parser").get_text()
-            # Side-effect: auto-discover ATS companies mentioned in comments
-            sources_ats.discover_from_hn_text(text)
-            uid = _uid("hn-hiring", str(child.get("id", "")))
-            if db.job_exists(uid):
-                continue
-            first_line = plain[:160].split("\n")[0]
-            company = first_line.split("|")[0].strip()[:80] if "|" in first_line else "Unknown"
-            posted_at = child.get("created_at") or child.get("created_at_i", "")
-            if isinstance(posted_at, int):
-                from datetime import datetime
-                posted_at = datetime.utcfromtimestamp(posted_at).strftime("%Y-%m-%d")
-            jobs.append(dict(
-                id=uid, source="hn_whoishiring", title=first_line[:200],
-                company=company, url=f"https://news.ycombinator.com/item?id={child.get('id')}",
-                description=plain[:2000],
-                work_type=detect_work_type(plain), location=detect_location(plain),
-                posted_at=str(posted_at)[:30],
-            ))
+        for _ in range(max_pages):
+            r = requests.get(url, headers=HEADERS, timeout=10)
+            soup = BeautifulSoup(r.text, "html.parser")
+            rows = soup.select("tr.athing.submission")
+            if not rows:
+                break
+
+            for row in rows:
+                item_id = row.get("id", "")
+                title_el = row.select_one("span.titleline > a")
+                if not title_el:
+                    continue
+                title = title_el.get_text(strip=True)
+                href = title_el.get("href", "")
+                if not href.startswith("http"):
+                    href = f"https://news.ycombinator.com/{href}" if href else f"https://news.ycombinator.com/item?id={item_id}"
+
+                site_el = row.select_one("span.sitestr")
+                company = site_el.get_text(strip=True) if site_el else _first_word(title)
+
+                # Date from the next sibling row's <span class="age">
+                age_el = row.find_next("span", class_="age")
+                posted_at = ""
+                if age_el and age_el.get("title"):
+                    posted_at = age_el["title"][:10]  # YYYY-MM-DD from ISO
+
+                uid = _uid("hn-page", item_id or title)
+                if db.job_exists(uid):
+                    continue
+                jobs.append(dict(
+                    id=uid, source="hn_jobs_page", title=title[:200],
+                    company=company[:80], url=href,
+                    description=title,
+                    work_type=detect_work_type(title), location=detect_location(title),
+                    posted_at=posted_at,
+                ))
+
+            # Follow pagination
+            more = soup.select_one("a.morelink")
+            if not more:
+                break
+            next_href = more.get("href", "")
+            url = f"https://news.ycombinator.com/{next_href}" if next_href else None
+            if not url:
+                break
     except Exception as e:
-        print(f"[hn_whoishiring] {e}")
+        print(f"[hn_jobs_page] {e}")
     return jobs
 
 
@@ -167,93 +182,110 @@ def _playwright_get_html(url, wait_ms=2500):
         return None
 
 
-def scrape_web3career():
-    """Scrape web3.career/remote-jobs using Playwright (JS-rendered).
+def scrape_web3career(max_pages=10):
+    """Scrape web3.career/remote-jobs with pagination, 30-day cutoff.
 
-    HTML structure: each job has multiple <td data-jobid="N"> cells.
-      TD[scope=row] = title (contains <a href="/slug/N"><h2>Title</h2></a>)
-      next TD        = company (contains <a><h3>Company</h3></a>)
-      next TD        = <time datetime="...">
-      next TD        = location text
-      next TD        = salary
-      last TD        = tags/badges
+    Uses Playwright (JS-rendered). Pages via ?page=N.
+    Stops when jobs are older than 30 days.
     """
     jobs = []
-    html = None
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
     try:
-        html = _playwright_get_html("https://web3.career/remote-jobs", wait_ms=3000)
-        if not html:
-            return jobs
-        soup = BeautifulSoup(html, "html.parser")
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page_ctx = browser.new_page(user_agent=HEADERS["User-Agent"])
+            stop_paging = False
 
-        # Collect all title cells (td[data-jobid][scope=row])
-        title_cells = soup.select("td[data-jobid][scope='row']")
-        if not title_cells:
-            # Fallback: first td with data-jobid per unique jobid
-            seen_ids = set()
-            title_cells = []
-            for td in soup.select("td[data-jobid]"):
-                jid = td.get("data-jobid")
-                if jid and jid not in seen_ids:
-                    seen_ids.add(jid)
-                    title_cells.append(td)
+            for page_num in range(1, max_pages + 1):
+                url = f"https://web3.career/remote-jobs?page={page_num}"
+                print(f"  web3career page {page_num}...")
+                page_ctx.goto(url, timeout=30000)
+                page_ctx.wait_for_timeout(3000)
+                html = page_ctx.content()
+                soup = BeautifulSoup(html, "html.parser")
 
-        for td in title_cells:
-            job_id = td.get("data-jobid", "")
+                title_cells = soup.select("td[data-jobid][scope='row']")
+                if not title_cells:
+                    seen_ids = set()
+                    title_cells = []
+                    for td in soup.select("td[data-jobid]"):
+                        jid = td.get("data-jobid")
+                        if jid and jid not in seen_ids:
+                            seen_ids.add(jid)
+                            title_cells.append(td)
 
-            # Title + URL from the <a> wrapping <h2>
-            a = td.select_one("a[href]")
-            if not a:
-                continue
-            title = a.get_text(strip=True)
-            if not title or len(title) < 5:
-                continue
-            href = a.get("href", "")
-            if not href.startswith("http"):
-                href = "https://web3.career" + href
+                if not title_cells:
+                    break  # no more jobs
 
-            # All sibling TDs with same data-jobid (for company, time, location, tags)
-            siblings = soup.select(f"td[data-jobid='{job_id}']")
+                page_jobs_before = len(jobs)
+                for td in title_cells:
+                    job_id = td.get("data-jobid", "")
+                    a = td.select_one("a[href]")
+                    if not a:
+                        continue
+                    title = a.get_text(strip=True)
+                    if not title or len(title) < 5:
+                        continue
+                    href = a.get("href", "")
+                    if not href.startswith("http"):
+                        href = "https://web3.career" + href
 
-            company = ""
-            posted_at = ""
-            location = ""
-            tags = ""
-            for sib in siblings:
-                if sib == td:
-                    continue
-                h3 = sib.select_one("h3")
-                if h3 and not company:
-                    company = h3.get_text(strip=True)[:80]
-                    continue
-                time_el = sib.select_one("time[datetime]")
-                if time_el and not posted_at:
-                    posted_at = time_el.get("datetime", "")[:30]
-                    continue
-                badges = sib.select("a[class*='badge'], span[class*='badge'], [class*='tag']")
-                if badges:
-                    tags = " ".join(b.get_text(strip=True) for b in badges)
-                    continue
-                txt = sib.get_text(strip=True)
-                if txt and not location and len(txt) < 60:
-                    location = txt
+                    siblings = soup.select(f"td[data-jobid='{job_id}']")
+                    company, posted_at, location, tags = "", "", "", ""
+                    for sib in siblings:
+                        if sib == td:
+                            continue
+                        h3 = sib.select_one("h3")
+                        if h3 and not company:
+                            company = h3.get_text(strip=True)[:80]
+                            continue
+                        time_el = sib.select_one("time[datetime]")
+                        if time_el and not posted_at:
+                            posted_at = time_el.get("datetime", "")[:30]
+                            continue
+                        badges = sib.select("a[class*='badge'], span[class*='badge'], [class*='tag']")
+                        if badges:
+                            tags = " ".join(b.get_text(strip=True) for b in badges)
+                            continue
+                        txt = sib.get_text(strip=True)
+                        if txt and not location and len(txt) < 60:
+                            location = txt
 
-            if not company:
-                company = _first_word(title)
+                    # 30-day cutoff check
+                    if posted_at:
+                        try:
+                            job_date = datetime.fromisoformat(posted_at.replace("Z", "+00:00"))
+                            if job_date.tzinfo is None:
+                                job_date = job_date.replace(tzinfo=timezone.utc)
+                            if job_date < cutoff:
+                                stop_paging = True
+                                continue
+                        except (ValueError, TypeError):
+                            pass
 
-            description = f"{title} {tags}".strip()
-            uid = _uid("w3c", href)
-            if db.job_exists(uid):
-                continue
-            jobs.append(dict(
-                id=uid, source="web3career", title=title[:200],
-                company=company, url=href, description=description,
-                work_type="remote", location=location or "remote",
-                posted_at=posted_at,
-            ))
+                    if not company:
+                        company = _first_word(title)
+
+                    uid = _uid("w3c", href)
+                    if db.job_exists(uid):
+                        continue
+                    jobs.append(dict(
+                        id=uid, source="web3career", title=title[:200],
+                        company=company, url=href,
+                        description=f"{title} {tags}".strip(),
+                        work_type="remote", location=location or "remote",
+                        posted_at=posted_at,
+                    ))
+
+                if stop_paging or len(jobs) == page_jobs_before:
+                    break  # no new jobs or hit 30-day cutoff
+
+            browser.close()
     except Exception as e:
         print(f"[web3career] {e}")
-    print(f"  web3career raw html chars: {len(html) if html else 0}, jobs found: {len(jobs)}")
+    print(f"  web3career: {len(jobs)} jobs across pages")
     return jobs
 
 
@@ -536,7 +568,7 @@ def _submit_batch_scoring(jobs: list, now: str) -> dict:
     internal_id = hashlib.md5(batch_id.encode()).hexdigest()[:16]
     db.save_batch({
         "id": internal_id,
-        "provider": "anthropic",
+        "provider": llm.PROVIDER,
         "batch_id": batch_id,
         "status": "in_progress",
         "total_requests": len(jobs),
@@ -561,7 +593,7 @@ def poll_pending_batches() -> dict:
     completed_count = 0
 
     for batch in pending:
-        result = llm.poll_batch(batch["batch_id"])
+        result = llm.poll_batch(batch["batch_id"], provider=batch.get("provider"))
         if not result or result["status"] == "in_progress":
             continue
 
@@ -586,14 +618,14 @@ def poll_pending_batches() -> dict:
 def run_scrape(sources=None):
     db.init_db()
     cfg = db.get_config()
-    active = sources or ["hn_jobs", "hn_whoishiring", "web3career", "cryptorank", "dropstab", "ats"]
+    active = sources or ["hn_jobs", "hn_jobs_page", "web3career", "cryptorank", "dropstab", "ats"]
     skip_titles = cfg.get("skip_title_patterns", [])
     raw = []
 
     if "hn_jobs" in active:
         j = scrape_hn_jobs(); print(f"  hn_jobs: {len(j)}"); raw += j
-    if "hn_whoishiring" in active:
-        j = scrape_hn_whoishiring(); print(f"  hn_whoishiring: {len(j)}"); raw += j
+    if "hn_jobs_page" in active:
+        j = scrape_hn_jobs_page(); print(f"  hn_jobs_page: {len(j)}"); raw += j
     if "web3career" in active:
         j = scrape_web3career(); print(f"  web3career: {len(j)}"); raw += j
     if "cryptorank" in active:

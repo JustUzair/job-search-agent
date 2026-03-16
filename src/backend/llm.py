@@ -61,21 +61,25 @@ def chat_json(prompt: str, max_tokens: int = 200) -> dict:
 # ── Batch scoring (Anthropic Message Batches API — 50% cheaper) ──────────
 
 def create_scoring_batch(jobs: list, candidate_profile: str) -> str | None:
+    """Submit jobs for batch scoring via Anthropic or OpenAI.
+    Returns batch_id or None if batching unavailable.
     """
-    Submit all jobs for scoring in a single Anthropic batch request.
-    Returns the batch_id (string) or None if batching isn't available.
-    Falls back to None for non-Anthropic providers so caller can use sync scoring.
-    """
-    if PROVIDER != "anthropic" or not jobs:
+    if not jobs:
         return None
+    if PROVIDER == "anthropic":
+        return _create_anthropic_batch(jobs, candidate_profile)
+    if PROVIDER == "openai":
+        return _create_openai_batch(jobs, candidate_profile)
+    return None
 
+
+def _create_anthropic_batch(jobs, candidate_profile):
     import anthropic
     client = anthropic.Anthropic(api_key=API_KEY)
-
-    requests = []
+    reqs = []
     for job in jobs:
         prompt = _build_score_prompt(job, candidate_profile)
-        requests.append({
+        reqs.append({
             "custom_id": job["id"],
             "params": {
                 "model": MODEL,
@@ -84,22 +88,65 @@ def create_scoring_batch(jobs: list, candidate_profile: str) -> str | None:
                 "messages": [{"role": "user", "content": prompt}],
             },
         })
-
-    batch = client.messages.batches.create(requests=requests)
+    batch = client.messages.batches.create(requests=reqs)
     return batch.id
 
 
-def poll_batch(batch_id: str) -> dict | None:
-    """
-    Check batch status. Returns dict with 'status' and 'results' (if done).
-    Results is a list of {custom_id, score, reason} dicts.
-    """
-    if PROVIDER != "anthropic":
-        return None
+def _create_openai_batch(jobs, candidate_profile):
+    """OpenAI Batch API: write JSONL → upload file → create batch → return batch_id."""
+    import tempfile
+    from openai import OpenAI
+    client = OpenAI(api_key=API_KEY)
 
+    # Write JSONL to temp file
+    lines = []
+    for job in jobs:
+        prompt = _build_score_prompt(job, candidate_profile)
+        lines.append(json.dumps({
+            "custom_id": job["id"],
+            "method": "POST",
+            "url": "/v1/chat/completions",
+            "body": {
+                "model": MODEL,
+                "max_tokens": 80,
+                "temperature": 0.1,
+                "messages": [{"role": "user", "content": prompt}],
+            },
+        }))
+
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".jsonl", delete=False) as f:
+        f.write("\n".join(lines))
+        tmp_path = f.name
+
+    try:
+        with open(tmp_path, "rb") as f:
+            uploaded = client.files.create(file=f, purpose="batch")
+        batch = client.batches.create(
+            input_file_id=uploaded.id,
+            endpoint="/v1/chat/completions",
+            completion_window="24h",
+        )
+        return batch.id
+    finally:
+        import os as _os
+        _os.unlink(tmp_path)
+
+
+def poll_batch(batch_id: str, provider: str | None = None) -> dict | None:
+    """Check batch status. Returns {status, results} or None.
+    Provider param overrides global PROVIDER (for polling historical batches).
+    """
+    prov = (provider or PROVIDER).lower()
+    if prov == "anthropic":
+        return _poll_anthropic_batch(batch_id)
+    if prov == "openai":
+        return _poll_openai_batch(batch_id)
+    return None
+
+
+def _poll_anthropic_batch(batch_id):
     import anthropic
     client = anthropic.Anthropic(api_key=API_KEY)
-
     batch = client.messages.batches.retrieve(batch_id)
     if batch.processing_status != "ended":
         return {"status": "in_progress", "results": []}
@@ -121,7 +168,48 @@ def poll_batch(batch_id: str) -> dict | None:
         else:
             reason = f"batch error: {entry.result.type}"
         results.append({"custom_id": custom_id, "score": score, "reason": reason})
+    return {"status": "completed", "results": results}
 
+
+def _poll_openai_batch(batch_id):
+    """Poll OpenAI batch: retrieve status → download output JSONL → parse results."""
+    from openai import OpenAI
+    client = OpenAI(api_key=API_KEY)
+    batch = client.batches.retrieve(batch_id)
+
+    if batch.status in ("validating", "in_progress", "finalizing"):
+        return {"status": "in_progress", "results": []}
+    if batch.status in ("failed", "expired", "cancelled"):
+        return {"status": batch.status, "results": []}
+
+    # completed — download output
+    if not batch.output_file_id:
+        return {"status": "completed", "results": []}
+
+    content = client.files.content(batch.output_file_id).text
+    results = []
+    for line in content.strip().split("\n"):
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+            custom_id = entry.get("custom_id", "")
+            score, reason = 0, ""
+            body = entry.get("response", {}).get("body", {})
+            choices = body.get("choices", [])
+            if choices:
+                raw_text = choices[0].get("message", {}).get("content", "").strip()
+                raw_text = re.sub(r"^```[a-z]*\n?", "", raw_text)
+                raw_text = re.sub(r"\n?```$", "", raw_text).strip()
+                try:
+                    data = json.loads(raw_text)
+                    score = int(data.get("score", 0))
+                    reason = str(data.get("reason", ""))[:120]
+                except Exception:
+                    reason = "parse error"
+            results.append({"custom_id": custom_id, "score": score, "reason": reason})
+        except json.JSONDecodeError:
+            continue
     return {"status": "completed", "results": results}
 
 

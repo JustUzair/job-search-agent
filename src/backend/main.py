@@ -345,6 +345,11 @@ Updated profile:"""
     return {"profile": updated.strip()}
 
 
+@app.get("/api/sources")
+async def get_sources():
+    return db.get_distinct_sources()
+
+
 # ── Static files (React SPA) ──────────────────────────────────────────────────
 
 FRONTEND_DIST = Path(__file__).parent.parent.parent / "src" / "frontend" / "dist"

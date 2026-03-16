@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { getJobs, setJobStatus, startScrape, getScrapeStatus, getBatches, pollBatches } from '../api.js'
 import TailorModal from './TailorModal.jsx'
+import JobDetailModal from './JobDetailModal.jsx'
 
 const SCORE_DOT = (score) => {
   if (score >= 75) return 'bg-emerald-500'
@@ -28,9 +29,12 @@ export function WorkTypeBadge({ type }) {
   )
 }
 
-function JobCard({ job, onSkip, onTailor }) {
+function JobCard({ job, onSkip, onTailor, onClick }) {
   return (
-    <div className="bg-slate-800 rounded-lg p-4 border border-slate-700 hover:border-slate-600 transition-colors">
+    <div
+      onClick={onClick}
+      className="bg-slate-800 rounded-lg p-4 border border-slate-700 hover:border-slate-600 transition-colors cursor-pointer"
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <div className="flex-shrink-0 flex flex-col items-center gap-1">
@@ -56,7 +60,7 @@ function JobCard({ job, onSkip, onTailor }) {
         </div>
         <div className="flex gap-2 flex-shrink-0">
           <button
-            onClick={() => onTailor(job)}
+            onClick={(e) => { e.stopPropagation(); onTailor(job); }}
             className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs rounded font-medium transition-colors"
           >
             ⚡ Tailor
@@ -66,13 +70,14 @@ function JobCard({ job, onSkip, onTailor }) {
               href={job.url}
               target="_blank"
               rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
               className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded font-medium transition-colors"
             >
               ↗ Open
             </a>
           )}
           <button
-            onClick={() => onSkip(job.id)}
+            onClick={(e) => { e.stopPropagation(); onSkip(job.id); }}
             className="px-3 py-1.5 bg-slate-700 hover:bg-red-900 text-slate-300 hover:text-red-300 text-xs rounded font-medium transition-colors"
           >
             × Skip
@@ -94,6 +99,7 @@ export default function QueueTab() {
   const [scraping, setScraping] = useState(false)
   const [scrapeStatus, setScrapeStatus] = useState(null)
   const [tailorJob_, setTailorJob] = useState(null)
+  const [selectedJob, setSelectedJob] = useState(null)
   const [pendingBatch, setPendingBatch] = useState(null)
 
   const fetchJobs = useCallback(async () => {
@@ -174,6 +180,16 @@ export default function QueueTab() {
     }
   }
 
+  const handleApply = async (id) => {
+    try {
+      await setJobStatus(id, 'applied')
+      setJobs(prev => prev.filter(j => j.id !== id))
+      setSelectedJob(null)
+    } catch (e) {
+      setError(e.message)
+    }
+  }
+
   const totalPages = Math.ceil(total / LIMIT)
 
   return (
@@ -223,7 +239,7 @@ export default function QueueTab() {
       ) : (
         <div className="space-y-3">
           {jobs.map(job => (
-            <JobCard key={job.id} job={job} onSkip={handleSkip} onTailor={setTailorJob} />
+            <JobCard key={job.id} job={job} onSkip={handleSkip} onTailor={setTailorJob} onClick={() => setSelectedJob(job)} />
           ))}
         </div>
       )}
@@ -250,6 +266,10 @@ export default function QueueTab() {
 
       {tailorJob_ && (
         <TailorModal job={tailorJob_} onClose={() => setTailorJob(null)} />
+      )}
+
+      {selectedJob && (
+        <JobDetailModal job={selectedJob} onClose={() => { setSelectedJob(null); fetchJobs(); }} />
       )}
     </div>
   )
