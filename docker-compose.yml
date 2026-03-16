@@ -1,14 +1,18 @@
 services:
-  bot:
+  openclaw:
     build: .
     restart: unless-stopped
+    ports:
+      - "8000:8000"
     volumes:
-      - ./data:/app/data          # SQLite DB + tailored resumes live here on your Mac
-      - ./resume:/app/resume:ro   # your full Overleaf project folder, read-only
-      - ./bot.py:/app/bot.py      # mount code so changes only need a restart, not rebuild
-      - ./scraper.py:/app/scraper.py
-      - ./tailor.py:/app/tailor.py
-      - ./db.py:/app/db.py
+      - ./data:/app/data
+      - ./resume:/app/resume:ro
+      # Hot reload: only mount the backend so Python edits take effect without rebuild.
+      # Do NOT mount all of ./src — that would shadow src/frontend/dist built into the image.
+      - ./src/backend:/app/src/backend
     env_file:
       - .env
-    command: python bot.py
+    environment:
+      - DB_PATH=/app/data/jobs.db
+      - RESUME_DIR=/app/resume
+    command: uvicorn src.backend.main:app --host 0.0.0.0 --port 8000 --reload
