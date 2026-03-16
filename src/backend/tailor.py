@@ -1,0 +1,250 @@
+import hashlib
+import os
+import re
+import json
+import subprocess
+import zipfile
+from datetime import datetime, timezone, timedelta
+
+import requests
+from bs4 import BeautifulSoup
+
+import db
+import llm
+
+IST = timezone(timedelta(hours=5, minutes=30))
+RESUME_DIR = os.environ.get("RESUME_DIR", "/app/resume")
+RESUME_OUT_DIR = "/app/data/resumes"
+
+TAILOR_TARGETS = {
+    "sections/objective.tex",
+    "sections/experience.tex",
+    "sections/skills.tex",
+    "sections/projects.tex",
+    "sections/achievements.tex",
+    "sections/security.tex",
+}
+
+COPY_ONLY = {
+    "resume.tex", "_header.tex", "TLCresume.sty",
+    "sections/education.tex", "sections/certifications.tex",
+    "sections/hobbies.tex", "sections/por.tex",
+}
+
+
+def fetch_jd(url):
+    try:
+        r = requests.get(url, timeout=12, headers={"User-Agent": "Mozilla/5.0"})
+        soup = BeautifulSoup(r.text, "html.parser")
+        for tag in soup(["nav", "header", "footer", "script", "style"]):
+            tag.decompose()
+        return soup.get_text(separator="\n", strip=True)[:3000]
+    except Exception as e:
+        return f"Could not fetch: {e}"
+
+
+def load_resume_files():
+    files = {}
+    if not os.path.isdir(RESUME_DIR):
+        return files
+    for rel_path in [*TAILOR_TARGETS, *COPY_ONLY]:
+        abs_path = os.path.join(RESUME_DIR, rel_path)
+        if os.path.exists(abs_path):
+            with open(abs_path) as f:
+                files[rel_path] = f.read()
+    return files
+
+
+def build_prompt(jd, title, company, files):
+    target_content = {k: v for k, v in files.items() if k in TAILOR_TARGETS}
+    files_block = "\n\n".join(
+        f"### FILE: {path}\n```latex\n{content}\n```"
+        for path, content in target_content.items()
+    )
+    return f"""You are a resume editor. Tailor these LaTeX files for this specific job.
+
+JOB: {title} at {company}
+
+JOB DESCRIPTION:
+{jd[:2500]}
+
+RESUME FILES:
+{files_block}
+
+RULES:
+- Reorder bullets to surface most relevant experience first
+- Rewrite objective.tex to speak directly to this role
+- Reorder skills.tex so most relevant skills appear first
+- Do NOT invent skills, experience, or tools
+- Do NOT change company names, job titles, or dates
+- Keep all LaTeX commands intact
+- Escape special characters (e.g. & to \&, % to \%, $ to \$) unless part of a command
+- Return ONLY files that actually changed
+
+Respond with ONLY a JSON object: {{"sections/objective.tex": "...full content...", ...}}
+No markdown fences around the JSON."""
+
+
+def make_zip(out_dir, company):
+    """Zip the output folder so it can be uploaded directly to Overleaf."""
+    zip_path = out_dir + ".zip"
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+        for root, _, fnames in os.walk(out_dir):
+            for fname in fnames:
+                abs_path = os.path.join(root, fname)
+                arcname = os.path.relpath(abs_path, out_dir)
+                zf.write(abs_path, arcname)
+    return zip_path
+
+
+def compile_pdf(out_dir: str) -> tuple[str, str]:
+    """Run latexmk to compile resume.tex to PDF. Returns (pdf_path, error_log)."""
+    resume_tex = os.path.join(out_dir, "resume.tex")
+    if not os.path.exists(resume_tex):
+        return "", "resume.tex not found"
+    try:
+        result = subprocess.run(
+            ["latexmk", "-pdf", "-interaction=nonstopmode", "-outdir=.", "resume.tex"],
+            cwd=out_dir,
+            capture_output=True,
+            timeout=60,
+            text=True,
+        )
+        pdf_path = os.path.join(out_dir, "resume.pdf")
+        if os.path.exists(pdf_path):
+            return pdf_path, ""
+        return "", f"STDOUT:\n{result.stdout}\n\nSTDERR:\n{result.stderr}"
+    except Exception as e:
+        return "", str(e)
+
+
+FIT_THRESHOLD = 35  # below this score, warn before tailoring
+
+
+def check_fit(jd: str, title: str, company: str) -> tuple[int, str]:
+    """Quick scoring call to assess fit before running the full tailor prompt."""
+    candidate_profile = db.get_profile()
+    data = llm.chat_json(
+        f"""Score this job for the candidate (0-100).
+
+CANDIDATE:
+{candidate_profile}
+
+JOB:
+Title: {title}
+Company: {company}
+Description: {jd[:1500]}
+
+Rules:
+- Score 0 if role requires physical presence (onsite/in-office)
+- Score 0 if requires 5+ years experience for a 2-year candidate
+- Score based on tech stack overlap, seniority match, remote availability
+
+Reply ONLY valid JSON: {{"score": <int>, "reason": "<max 120 chars>"}}""",
+        max_tokens=80,
+    )
+    return int(data.get("score", 0)), str(data.get("reason", "no reason returned"))[:120]
+
+
+def tailor(job_id=None, url=None, raw_jd=None, variant_name="", force=False):
+    files = load_resume_files()
+    if not files:
+        return {"error": f"No resume files found at {RESUME_DIR}. Check volume mount."}
+
+    if job_id:
+        job = db.get_job(job_id)
+        if not job:
+            return {"error": f"Job {job_id} not found"}
+        title, company = job["title"], job["company"]
+        jd = job["description"] if len(job["description"]) > 200 else fetch_jd(job["url"])
+        job_score = job.get("score", 0)
+        # Use existing score if already computed, otherwise run a fresh fit check
+        existing_score = job.get("score", -1)
+        if existing_score >= 0:
+            fit_score, fit_reason = existing_score, job.get("reason", "")
+        else:
+            fit_score, fit_reason = check_fit(jd, title, company)
+    elif url:
+        title, company = "Role", url.split("/")[2] if url.count("/") >= 2 else "company"
+        jd = fetch_jd(url)
+        job_score = 0
+        fit_score, fit_reason = check_fit(jd, title, company)
+    elif raw_jd:
+        title, company, jd = "Role", "Company", raw_jd
+        job_score = 0
+        fit_score, fit_reason = check_fit(jd, title, company)
+    else:
+        return {"error": "Need job_id, url, or raw_jd"}
+
+    # Warn if poor fit, unless the user explicitly forced past the warning
+    if fit_score < FIT_THRESHOLD and not force:
+        return {
+            "fit_warning": True,
+            "score": fit_score,
+            "reason": fit_reason,
+        }
+
+    prompt = build_prompt(jd, title, company, files)
+
+    # Use gpt-4o / claude-sonnet for tailoring — needs more reasoning than scoring
+    original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+    os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
+
+    raw = llm.chat(prompt, max_tokens=4096, temperature=0.3)
+
+    os.environ["MODEL_NAME"] = original_model  # restore
+
+    raw = re.sub(r"^```[a-z]*\n?", "", raw)
+    raw = re.sub(r"\n?```$", "", raw).strip()
+
+    try:
+        updated_files = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return {"error": f"LLM returned invalid JSON: {e}\n{raw[:200]}"}
+
+    updated_files = {k: v for k, v in updated_files.items() if k in TAILOR_TARGETS}
+
+    # Write output folder
+    os.makedirs(RESUME_OUT_DIR, exist_ok=True)
+    safe = re.sub(r"[^\w\-]", "_", company.lower())[:30]
+    ts = datetime.now(IST).strftime("%Y%m%d_%H%M")
+    out_dir = os.path.join(RESUME_OUT_DIR, f"{safe}_{ts}")
+    os.makedirs(os.path.join(out_dir, "sections"), exist_ok=True)
+
+    for rel_path in set(files) | set(updated_files):
+        content = updated_files.get(rel_path) or files.get(rel_path, "")
+        out_path = os.path.join(out_dir, rel_path)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w") as f:
+            f.write(content)
+
+    zip_path = make_zip(out_dir, company)
+
+    pdf_path, compile_log = compile_pdf(out_dir)
+
+    variant_id = hashlib.md5(f"{company}_{ts}".encode()).hexdigest()[:16]
+
+    db.save_variant({
+        "id": variant_id,
+        "job_id": job_id or "",
+        "company": company,
+        "title": title,
+        "variant_name": variant_name or f"{safe}_{ts}",
+        "out_dir": out_dir,
+        "zip_path": zip_path,
+        "pdf_path": pdf_path,
+        "changed_files": list(updated_files.keys()),
+        "job_score": job_score,
+        "created_at": datetime.now(IST).isoformat(),
+    })
+
+    return {
+        "variant_id": variant_id,
+        "zip_path": zip_path,
+        "pdf_path": pdf_path,
+        "out_dir": out_dir,
+        "company": company,
+        "title": title,
+        "changed_files": list(updated_files.keys()),
+        "compile_log": compile_log if not pdf_path else None,
+    }

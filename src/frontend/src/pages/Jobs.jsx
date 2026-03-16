@@ -95,7 +95,7 @@ function PasteJobUrl() {
                         </div>
                     )}
                     <div className="flex gap-2 flex-wrap">
-                        {result.pdf_path && (
+                        {result.pdf_path ? (
                             <a
                                 href={getVariantPdfUrl(result.variant_id || result.id)}
                                 download
@@ -103,7 +103,16 @@ function PasteJobUrl() {
                             >
                                 ↓ Download PDF
                             </a>
-                        )}
+                        ) : result.compile_log ? (
+                            <div className="relative group">
+                                <span className="px-3 py-1.5 bg-red-900/40 text-red-300 text-xs rounded font-medium border border-red-800 cursor-help">
+                                    ⚠ PDF Failed
+                                </span>
+                                <div className="absolute bottom-full mb-2 left-0 w-80 max-h-60 overflow-auto bg-slate-900 border border-slate-700 p-2 rounded text-[10px] text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity z-10 whitespace-pre-wrap">
+                                    {result.compile_log}
+                                </div>
+                            </div>
+                        ) : null}
                         {result.zip_path && (
                             <a
                                 href={getVariantZipUrl(result.variant_id || result.id)}
