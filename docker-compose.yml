@@ -10,6 +10,8 @@ services:
       # Hot reload: only mount the backend so Python edits take effect without rebuild.
       # Do NOT mount all of ./src — that would shadow src/frontend/dist built into the image.
       - ./src/backend:/app/src/backend
+      # Frontend dist volume — run `npm run build` in src/frontend/ then restart to pick up changes.
+      - ./src/frontend/dist:/app/src/frontend/dist
     env_file:
       - .env
     environment:
