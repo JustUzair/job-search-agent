@@ -191,7 +191,41 @@ def run_tailor(body: TailorRequest):
     return result
 
 
+# ── Resume editor ────────────────────────────────────────────────────────────
+
+class ResumeEditRequest(BaseModel):
+    instructions: str
+    variant_name: Optional[str] = ""
+
+
+@app.post("/api/resume/edit")
+def resume_edit(body: ResumeEditRequest):
+    if not body.instructions.strip():
+        raise HTTPException(status_code=400, detail="instructions must not be empty")
+    result = tailor_mod.apply_edits(
+        instructions=body.instructions,
+        variant_name=body.variant_name or "",
+    )
+    if "error" in result:
+        raise HTTPException(status_code=422, detail=result["error"])
+    return result
+
+
 # ── Variants ──────────────────────────────────────────────────────────────────
+
+class RefineRequest(BaseModel):
+    feedback: str
+
+
+@app.post("/api/variants/{variant_id}/refine")
+def refine_variant(variant_id: str, body: RefineRequest):
+    if not body.feedback.strip():
+        raise HTTPException(status_code=400, detail="feedback must not be empty")
+    result = tailor_mod.refine_variant(variant_id, body.feedback)
+    if "error" in result:
+        raise HTTPException(status_code=422, detail=result["error"])
+    return result
+
 
 @app.get("/api/variants")
 def list_variants():

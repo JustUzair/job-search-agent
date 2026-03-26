@@ -32,6 +32,200 @@ COPY_ONLY = {
 }
 
 
+def apply_edits(instructions: str, variant_name: str = "") -> dict:
+    """Apply free-form resume edit instructions (no job context needed)."""
+    files = load_resume_files()
+    if not files:
+        return {"error": f"No resume files found at {RESUME_DIR}. Check volume mount."}
+    if not instructions.strip():
+        return {"error": "instructions must not be empty"}
+
+    target_content = {k: v for k, v in files.items() if k in TAILOR_TARGETS}
+    files_block = "\n\n".join(
+        f"### FILE: {path}\n```latex\n{content}\n```"
+        for path, content in target_content.items()
+    )
+
+    prompt = f"""You are a resume editor. Apply the user's requested changes to these LaTeX resume files.
+
+USER INSTRUCTIONS:
+{instructions.strip()}
+
+RESUME FILES:
+{files_block}
+
+RULES:
+- Apply ONLY the changes the user explicitly asked for
+- Do NOT invent skills, experience, or tools not already in the resume
+- Do NOT change company names, job titles, or dates
+- Keep all LaTeX commands intact
+- Escape special characters (e.g. & to \\&, % to \\%, $ to \\$) unless part of a command
+- Return ONLY the files that actually changed
+- Pick ONLY 3 projects based on the job description
+
+Respond with ONLY a JSON object: {{"sections/objective.tex": "...full content...", ...}}
+No markdown fences around the JSON."""
+
+    original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+    os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
+    raw = llm.chat(prompt, max_tokens=4096, temperature=0.2)
+    os.environ["MODEL_NAME"] = original_model
+
+    raw = re.sub(r"^```[a-z]*\n?", "", raw)
+    raw = re.sub(r"\n?```$", "", raw).strip()
+
+    try:
+        updated_files = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return {"error": f"LLM returned invalid JSON: {e}\n{raw[:200]}"}
+
+    updated_files = {k: v for k, v in updated_files.items() if k in TAILOR_TARGETS}
+    if not updated_files:
+        return {"error": "LLM returned no changed files. Try rephrasing your instructions."}
+
+    os.makedirs(RESUME_OUT_DIR, exist_ok=True)
+    ts = datetime.now(IST).strftime("%Y%m%d_%H%M")
+    label = re.sub(r"[^\w\-]", "_", (variant_name or "manual_edit").lower())[:30]
+    out_dir = os.path.join(RESUME_OUT_DIR, f"{label}_{ts}")
+    os.makedirs(os.path.join(out_dir, "sections"), exist_ok=True)
+
+    for rel_path in set(files) | set(updated_files):
+        content = updated_files.get(rel_path) or files.get(rel_path, "")
+        out_path = os.path.join(out_dir, rel_path)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w") as f:
+            f.write(content)
+
+    zip_path = make_zip(out_dir, label)
+    pdf_path, compile_log = compile_pdf(out_dir)
+
+    variant_id = hashlib.md5(f"{label}_{ts}".encode()).hexdigest()[:16]
+    db.save_variant({
+        "id": variant_id,
+        "job_id": "",
+        "company": "",
+        "title": variant_name or "Manual edit",
+        "variant_name": variant_name or f"edit_{ts}",
+        "out_dir": out_dir,
+        "zip_path": zip_path,
+        "pdf_path": pdf_path,
+        "changed_files": list(updated_files.keys()),
+        "job_score": 0,
+        "created_at": datetime.now(IST).isoformat(),
+    })
+
+    return {
+        "variant_id": variant_id,
+        "zip_path": zip_path,
+        "pdf_path": pdf_path,
+        "changed_files": list(updated_files.keys()),
+        "compile_log": compile_log if not pdf_path else None,
+    }
+
+
+def refine_variant(variant_id: str, feedback: str) -> dict:
+    """Apply feedback to an already-tailored variant and produce a new one."""
+    variant = db.get_variant(variant_id)
+    if not variant:
+        return {"error": f"Variant {variant_id} not found"}
+
+    out_dir = variant.get("out_dir", "")
+    if not out_dir or not os.path.isdir(out_dir):
+        return {"error": "Variant output directory not found on disk"}
+
+    # Load files from the tailored variant (not master) so we iterate on what was already changed
+    files = {}
+    for rel_path in list(TAILOR_TARGETS) + list(COPY_ONLY):
+        abs_path = os.path.join(out_dir, rel_path)
+        if os.path.exists(abs_path):
+            with open(abs_path) as f:
+                files[rel_path] = f.read()
+
+    if not files:
+        return {"error": "No LaTeX files found in variant directory"}
+
+    target_content = {k: v for k, v in files.items() if k in TAILOR_TARGETS}
+    files_block = "\n\n".join(
+        f"### FILE: {path}\n```latex\n{content}\n```"
+        for path, content in target_content.items()
+    )
+
+    prompt = f"""You are a resume editor. Apply this feedback to the resume.
+
+FEEDBACK:
+{feedback.strip()}
+
+CURRENT RESUME FILES:
+{files_block}
+
+RULES:
+- Apply ONLY the changes requested in the feedback
+- Do NOT invent skills, experience, or tools not already in the resume
+- Do NOT change company names, job titles, or dates
+- Keep all LaTeX commands intact
+- Return ONLY the files that actually changed
+
+Respond with ONLY a JSON object: {{"sections/objective.tex": "...full content...", ...}}
+No markdown fences around the JSON."""
+
+    original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
+    os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
+    raw = llm.chat(prompt, max_tokens=4096, temperature=0.2)
+    os.environ["MODEL_NAME"] = original_model
+
+    raw = re.sub(r"^```[a-z]*\n?", "", raw)
+    raw = re.sub(r"\n?```$", "", raw).strip()
+
+    try:
+        updated_files = json.loads(raw)
+    except json.JSONDecodeError as e:
+        return {"error": f"LLM returned invalid JSON: {e}\n{raw[:200]}"}
+
+    updated_files = {k: v for k, v in updated_files.items() if k in TAILOR_TARGETS}
+    if not updated_files:
+        return {"error": "LLM returned no changed files. Try rephrasing your feedback."}
+
+    ts = datetime.now(IST).strftime("%Y%m%d_%H%M")
+    # Strip any previous timestamp suffix to keep directory names clean
+    base_label = re.sub(r"_\d{8}_\d{4}(_r\d{8}_\d{4})*$", "", os.path.basename(out_dir))[:30]
+    new_out_dir = os.path.join(RESUME_OUT_DIR, f"{base_label}_r{ts}")
+    os.makedirs(os.path.join(new_out_dir, "sections"), exist_ok=True)
+
+    for rel_path in set(files) | set(updated_files):
+        content = updated_files.get(rel_path) or files.get(rel_path, "")
+        out_path = os.path.join(new_out_dir, rel_path)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w") as f:
+            f.write(content)
+
+    zip_path = make_zip(new_out_dir, base_label)
+    pdf_path, compile_log = compile_pdf(new_out_dir)
+
+    new_variant_id = hashlib.md5(f"{base_label}_r{ts}".encode()).hexdigest()[:16]
+    db.save_variant({
+        "id": new_variant_id,
+        "job_id": variant.get("job_id", ""),
+        "company": variant.get("company", ""),
+        "title": variant.get("title", ""),
+        "variant_name": f"{variant.get('variant_name', 'variant')}_r{ts}",
+        "out_dir": new_out_dir,
+        "zip_path": zip_path,
+        "pdf_path": pdf_path,
+        "changed_files": list(updated_files.keys()),
+        "job_score": variant.get("job_score", 0),
+        "created_at": datetime.now(IST).isoformat(),
+    })
+
+    return {
+        "variant_id": new_variant_id,
+        "zip_path": zip_path,
+        "pdf_path": pdf_path,
+        "company": variant.get("company", ""),
+        "changed_files": list(updated_files.keys()),
+        "compile_log": compile_log if not pdf_path else None,
+    }
+
+
 def fetch_jd(url):
     try:
         r = requests.get(url, timeout=12, headers={"User-Agent": "Mozilla/5.0"})

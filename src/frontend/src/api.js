@@ -59,6 +59,9 @@ export function tailorJob(params) {
     if (typeof params?.url === "string") {
         payload.url = params.url;
     }
+    if (typeof params?.raw_jd === "string") {
+        payload.raw_jd = params.raw_jd;
+    }
 
     return request("POST", "/tailor", payload);
 }
@@ -122,4 +125,12 @@ export function pollBatches() {
 
 export function getSources() {
     return request("GET", "/sources");
+}
+
+export function editResume(instructions, variantName = "") {
+    return request("POST", "/resume/edit", { instructions, variant_name: variantName });
+}
+
+export function refineVariant(variantId, feedback) {
+    return request("POST", `/variants/${variantId}/refine`, { feedback });
 }

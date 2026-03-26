@@ -1,0 +1,30 @@
+\documentclass[letter,10pt]{article}
+\usepackage{TLCresume}
+\begin{document}
+
+\subsection{{ \href{https://github.com/Suhel-Kap/coinbase-swap-widget}{Coinbase CDP Swap & Onramp Widget} \hfill 2024}}
+\begin{zitemize}
+  \item Built production-ready DeFi widget for token swapping and crypto purchasing on Base network with real-time quotes, smart routing, and slippage control
+  \item Implemented precise token approvals and on-chain transaction confirmation using waitForTransactionReceipt to prevent race conditions
+  \item Architected Next.js 15 App Router with modular components, custom React hooks, TanStack Query for state management, and comprehensive TypeScript coverage
+  \item Developed end-to-end Playwright test suite across Chromium, Firefox, WebKit, and mobile viewports
+  \item \textbf{Tech}: Next.js 15, TypeScript, viem, Tailwind CSS, TanStack Query, Coinbase CDP, Radix UI, Playwright
+\end{zitemize}
+
+\subsection{{ \href{https://github.com/Suhel-Kap/hiringcafe-dataset-job-search}{HiringCafe AI Job Search CLI} \hfill 2024}}
+\begin{zitemize}
+  \item Built conversational job search engine over 100K US job postings using hybrid search pipeline combining vector similarity (pgvector HNSW indexes) with structured SQL filtering
+  \item Implemented multi-vector relevance ranking using weighted combination of 3 pre-computed embeddings with LLM-assigned weights per query
+  \item Designed two-stage fallback strategy (strict → per-category relaxed) to handle over-constrained queries without dropping user intent
+  \item Analyzed 8GB JSONL file, mapped 216 unique field paths, and designed 79-column PostgreSQL schema with two-pass ingestion to avoid WAL disk exhaustion
+  \item Persisted conversation history with sliding window token optimization for multi-turn interactions
+  \item \textbf{Tech}: Python 3.12, PostgreSQL 16 + pgvector, OpenAI GPT-5.1, SQLAlchemy, Alembic, Typer
+\end{zitemize}
+
+\subsection{{ \href{https://github.com/Suhel-Kap/the-crypto-studio}{The Crypto Studio} Runner-up Social Hour Hackathon, IPFS Microgrant \hfill NOV 2022 - JAN 2023}}
+\begin{zitemize}
+  \item Created NFT platform supporting dynamic visualizations and audio-enhanced NFTs
+  \item \textbf{Tech}: Next.js, TypeScript, IPFS, Solidity
+\end{zitemize}
+
+\end{document}
