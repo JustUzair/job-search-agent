@@ -137,7 +137,28 @@ ollama pull llama2:70b
 
 Pull takes 5–30 minutes depending on model size and internet speed. It downloads once and caches locally.
 
+### Step 2b: Create a custom model from Modelfile (optional)
+
+If you want to use the specialized coding assistant configuration included in this project:
+
+1. Make sure you're in the project directory (contains the `Modelfile`)
+2. Create the custom model:
+
+```bash
+ollama create gpt-resume-agent -f Modelfile
+```
+
+3. Update your `.env` to use the custom model:
+
+```
+MODEL_NAME=gpt-resume-agent
+```
+
+This custom model includes detailed instructions for code quality, architecture, and best practices built into the system prompt.
+
 ### Step 3: Update your `.env` file
+
+### Step 4: Update your `.env` file
 
 Replace the API key config with Ollama settings:
 
@@ -157,7 +178,7 @@ SCORE_THRESHOLD=60
 
 **Note:** `host.docker.internal` is how Docker containers reach your Mac's `localhost:11434`.
 
-### Step 4: Start Ollama server (in a separate terminal)
+### Step 5: Start Ollama server (in a separate terminal)
 
 ```bash
 ollama serve
@@ -169,7 +190,7 @@ Leave this running. You'll see:
 Listening on 127.0.0.1:11434
 ```
 
-### Step 5: Start the bot
+### Step 6: Start the bot
 
 In your original terminal:
 
@@ -187,12 +208,22 @@ Jobs will be scored using your local Ollama model (no API calls, no costs).
 
 ---
 
+### Step 7: Test it
+
+Message your bot: `/scrape`
+
+Jobs will be scored using your local Ollama model (no API calls, no costs).
+
+---
+
 ### Switching models
 
-To try a different model:
+To try a different model (including your custom model):
 
-1. Pull it: `ollama pull llama2:70b`
-2. Update `.env`: `MODEL_NAME=llama2:70b`
+1. Pull or create the model:
+   - `ollama pull llama2:70b` (pull remote)
+   - `ollama create gpt-resume-agent -f Modelfile` (create from local Modelfile)
+2. Update `.env`: `MODEL_NAME=llama2:70b` or `MODEL_NAME=gpt-resume-agent`
 3. Restart: `docker compose down && docker compose up`
 
 ### Pros & Cons
