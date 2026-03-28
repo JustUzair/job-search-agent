@@ -652,24 +652,48 @@ def run_scrape(sources=None):
     threshold = cfg.get("score_threshold", 60)
     now = _now_ist()
 
-    # 3. Score new jobs — try batch first (50% cheaper), fall back to sync
+    # ── Step 3: Save ALL new jobs to DB immediately so the frontend shows them ──
+    # Jobs start as status='new' with score=0; scoring updates them in-place.
+    for job in new_jobs:
+        job.update(score=0, reason="pending scoring", found_at=now, status="new")
+        db.save_job(job)
+
+    # ── Step 4: Score a capped batch (ollama is slow — don't block forever) ──
+    MAX_SCORE_PER_RUN = int(os.environ.get("MAX_SCORE_PER_RUN", "200"))
+    to_score = new_jobs[:MAX_SCORE_PER_RUN]
+    skipped_scoring = len(new_jobs) - len(to_score)
+    if skipped_scoring:
+        print(f"[scrape] capping scoring at {MAX_SCORE_PER_RUN} — {skipped_scoring} jobs saved unscored, will score on next run")
+
     batch_info = None
     surfaced = []
 
-    if new_jobs:
-        batch_info = _submit_batch_scoring(new_jobs, now)
-
-    if batch_info:
-        # Batch submitted — scores arrive later via poll_pending_batches()
-        print(f"[scrape] batch submitted, scores will arrive async (check /api/batches)")
-    else:
-        # Sync fallback (non-Anthropic provider or empty job list)
-        for job in new_jobs:
-            score, reason = score_job(job)
-            job.update(score=score, reason=reason, found_at=now, status="new")
-            db.save_job(job)
-            if score >= threshold:
-                surfaced.append(job)
+    if to_score:
+        if llm.PROVIDER == "ollama":
+            # Ollama: score synchronously, update each job as it finishes
+            print(f"[scrape] ollama sync scoring {len(to_score)} jobs...")
+            for i, job in enumerate(to_score, 1):
+                score, reason = score_job(job)
+                status = "new" if score >= threshold else "filtered"
+                job.update(score=score, reason=reason, status=status)
+                db.save_job(job)
+                if score >= threshold:
+                    surfaced.append(job)
+                if i % 20 == 0:
+                    print(f"[scrape] scored {i}/{len(to_score)}...")
+        else:
+            # Cloud providers: use async batch scoring (cheaper + non-blocking)
+            batch_info = _submit_batch_scoring(to_score, now)
+            if batch_info:
+                print(f"[scrape] batch submitted, scores arrive async (check /api/batches)")
+            else:
+                # Fallback: sync scoring
+                for job in to_score:
+                    score, reason = score_job(job)
+                    job.update(score=score, reason=reason, found_at=now, status="new")
+                    db.save_job(job)
+                    if score >= threshold:
+                        surfaced.append(job)
 
     # Save rejected jobs so they appear in "All Results" with reason
     for job in raw:

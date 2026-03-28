@@ -145,13 +145,13 @@ If you want to use the specialized coding assistant configuration included in th
 2. Create the custom model:
 
 ```bash
-ollama create glm-5:cloud -f Modelfile
+ollama create qwen3:8b -f Modelfile
 ```
 
 3. Update your `.env` to use the custom model:
 
 ```
-MODEL_NAME=glm-5:cloud
+MODEL_NAME=qwen3:8b
 ```
 
 This custom model includes detailed instructions for code quality, architecture, and best practices built into the system prompt.
@@ -222,8 +222,8 @@ To try a different model (including your custom model):
 
 1. Pull or create the model:
    - `ollama pull llama2:70b` (pull remote)
-   - `ollama create glm-5:cloud -f Modelfile` (create from local Modelfile)
-2. Update `.env`: `MODEL_NAME=llama2:70b` or `MODEL_NAME=glm-5:cloud`
+   - `ollama create qwen3:8b -f Modelfile` (create from local Modelfile)
+2. Update `.env`: `MODEL_NAME=llama2:70b` or `MODEL_NAME=qwen3:8b`
 3. Restart: `docker compose down && docker compose up`
 
 ### Pros & Cons

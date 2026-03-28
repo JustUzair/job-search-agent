@@ -199,7 +199,29 @@ def poll_batch(batch_id: str, provider: str | None = None) -> dict | None:
         return _poll_anthropic_batch(batch_id)
     if prov == "openai":
         return _poll_openai_batch(batch_id)
+    if prov == "ollama":
+        return _poll_ollama_batch(batch_id)
     return None
+
+
+def _poll_ollama_batch(batch_id: str) -> dict | None:
+    """
+    Ollama batches are run synchronously in _create_ollama_batch().
+    The results are embedded directly in the batch_id string as:
+      'LOCAL_BATCH_DONE:{json_array}'
+    So polling is instant — just parse the embedded results.
+    """
+    if batch_id.startswith("LOCAL_BATCH_DONE:"):
+        try:
+            results_json = batch_id[len("LOCAL_BATCH_DONE:"):]
+            results = json.loads(results_json)
+            return {"status": "completed", "results": results}
+        except Exception as e:
+            print(f"[poll_ollama_batch] failed to parse embedded results: {e}")
+            return {"status": "completed", "results": []}
+    # Shouldn't happen, but treat unknown IDs as still in progress
+    return {"status": "in_progress", "results": []}
+
 
 
 def _poll_anthropic_batch(batch_id):
