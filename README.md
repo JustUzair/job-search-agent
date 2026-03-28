@@ -22,6 +22,7 @@ mkdir job-bot && cd job-bot
 ```
 
 Copy all these files into it:
+
 ```
 job-bot/
   bot.py
@@ -43,6 +44,7 @@ cp .env.example .env
 ```
 
 Edit `.env`:
+
 ```
 TELEGRAM_TOKEN=123456789:ABCdef...
 TELEGRAM_CHAT_ID=987654321
@@ -53,10 +55,12 @@ SCORE_THRESHOLD=60
 ### 3. Add your resume
 
 Download your full Overleaf project:
+
 - In Overleaf: Menu > Download > Source > gives you a .zip
 - Unzip it into a folder called `resume/` inside `job-bot/`
 
 Your structure should look like:
+
 ```
 job-bot/
   resume/
@@ -82,6 +86,7 @@ First run takes ~2 minutes (downloading Python, installing packages).
 After that, starts in seconds.
 
 You should see:
+
 ```
 Bot polling...
 Scheduler started — daily scrape at 08:00
@@ -92,6 +97,113 @@ Scheduler started — daily scrape at 08:00
 Open Telegram, message your bot: `/scrape`
 
 It will scrape HN, web3.career, etc., score jobs, and send you a digest.
+
+---
+
+## (Optional): Using Ollama for Free (Local LLM)
+
+Skip the OpenAI/Anthropic API keys and run job scoring locally on your machine using **Ollama**. No cloud costs, no API limits, completely free.
+
+### Prerequisites
+
+- **Ollama** installed on your Mac: https://ollama.ai
+- A supported model downloaded locally
+
+### Step 1: Install Ollama
+
+Download and install from [ollama.ai](https://ollama.ai). Takes ~2 minutes.
+
+### Step 2: Pull a model
+
+Open a terminal and pull a local model. Choose one:
+
+**Recommended (good balance):**
+
+```bash
+ollama pull gpt-oss:20b-cloud
+```
+
+**Lightweight (3B parameters, faster):**
+
+```bash
+ollama pull phi
+```
+
+**Heavier (70B parameters, better quality):**
+
+```bash
+ollama pull llama2:70b
+```
+
+Pull takes 5–30 minutes depending on model size and internet speed. It downloads once and caches locally.
+
+### Step 3: Update your `.env` file
+
+Replace the API key config with Ollama settings:
+
+```
+# **Comment these out if using Ollama:**
+# OPENAI_API_KEY=sk-...
+
+# **Add these instead:**
+MODEL_PROVIDER=ollama
+MODEL_NAME=gpt-oss:20b-cloud
+OLLAMA_BASE_URL=http://host.docker.internal:11434
+
+TELEGRAM_TOKEN=123456789:ABCdef...
+TELEGRAM_CHAT_ID=987654321
+SCORE_THRESHOLD=60
+```
+
+**Note:** `host.docker.internal` is how Docker containers reach your Mac's `localhost:11434`.
+
+### Step 4: Start Ollama server (in a separate terminal)
+
+```bash
+ollama serve
+```
+
+Leave this running. You'll see:
+
+```
+Listening on 127.0.0.1:11434
+```
+
+### Step 5: Start the bot
+
+In your original terminal:
+
+```bash
+docker compose up --build
+```
+
+The bot now pulls job descriptions directly to your local model. Scoring happens completely on your machine.
+
+### Step 6: Test it
+
+Message your bot: `/scrape`
+
+Jobs will be scored using your local Ollama model (no API calls, no costs).
+
+---
+
+### Switching models
+
+To try a different model:
+
+1. Pull it: `ollama pull llama2:70b`
+2. Update `.env`: `MODEL_NAME=llama2:70b`
+3. Restart: `docker compose down && docker compose up`
+
+### Pros & Cons
+
+| Aspect      | Ollama                           | OpenAI/Anthropic  |
+| ----------- | -------------------------------- | ----------------- |
+| **Cost**    | Free                             | Pay per request   |
+| **Speed**   | Depends on model (30–60 sec/job) | Fast (~5 sec/job) |
+| **Quality** | Good (~70–80% accuracy)          | Excellent (~95%+) |
+| **Privacy** | All local (no data leaves)       | Cloud-based       |
+| **Setup**   | ~30 min (first pull)             | Instant (API key) |
 
 ---
 
@@ -115,15 +227,15 @@ docker compose up --build
 
 ## Bot commands
 
-| Command | What it does |
-|---|---|
-| `/scrape` | Run a fresh scrape right now |
-| `/jobs` | List jobs in queue |
-| `/tailor abc123` | Tailor resume for job by ID |
-| `/tailor https://...` | Tailor resume for any job URL |
-| `/funded` | Show recently funded companies |
-| `/applied abc123` | Mark job as applied |
-| `/skip abc123` | Skip a job |
+| Command               | What it does                   |
+| --------------------- | ------------------------------ |
+| `/scrape`             | Run a fresh scrape right now   |
+| `/jobs`               | List jobs in queue             |
+| `/tailor abc123`      | Tailor resume for job by ID    |
+| `/tailor https://...` | Tailor resume for any job URL  |
+| `/funded`             | Show recently funded companies |
+| `/applied abc123`     | Mark job as applied            |
+| `/skip abc123`        | Skip a job                     |
 
 Tailored resumes land in `./data/resumes/<company_timestamp>/` on your Mac.
 Each folder is a complete copy of your resume with the relevant files modified.
@@ -150,6 +262,7 @@ Rebuild: `docker compose up --build -d`
 ## Adjusting the score threshold
 
 Change `SCORE_THRESHOLD` in your `.env` file, then restart:
+
 ```bash
 docker compose restart
 ```

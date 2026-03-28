@@ -11,15 +11,17 @@ import os
 import json
 import re
 
-PROVIDER = os.environ.get("MODEL_PROVIDER", "openai").lower()
-API_KEY  = os.environ.get("MODEL_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
-MODEL    = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-
+PROVIDER = os.environ.get("MODEL_PROVIDER", "ollama").lower()
+API_KEY  = os.environ.get("MODEL_API_KEY", "ollama") or os.environ.get("OPENAI_API_KEY", "") # ollama doesnt need an api key
+MODEL    = os.environ.get("MODEL_NAME", "gpt-oss:20b-cloud")
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434") # cloud hosted or local model
 
 def chat(prompt: str, max_tokens: int = 200, temperature: float = 0.2) -> str:
     """Send a single-turn prompt, return the assistant text."""
     if PROVIDER == "anthropic":
         return _anthropic(prompt, max_tokens, temperature)
+    if PROVIDER == "ollama":
+        return _ollama(prompt)
     return _openai(prompt, max_tokens, temperature)
 
 
@@ -46,6 +48,19 @@ def _anthropic(prompt, max_tokens, temperature):
     )
     return msg.content[0].text.strip()
 
+def _ollama(prompt):
+    """Call a locally-running Ollama instance via its OpenAI-compatible endpoint."""
+    from ollama import Client
+    from ollama import chat
+    client = Client(
+        host=OLLAMA_BASE_URL
+    )
+    resp = client.chat(
+        model=MODEL,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return resp.message.content
+
 
 def chat_json(prompt: str, max_tokens: int = 200) -> dict:
     """Like chat() but strips fences and parses JSON, returns {} on failure."""
@@ -70,8 +85,51 @@ def create_scoring_batch(jobs: list, candidate_profile: str) -> str | None:
         return _create_anthropic_batch(jobs, candidate_profile)
     if PROVIDER == "openai":
         return _create_openai_batch(jobs, candidate_profile)
+    if PROVIDER == "ollama":
+        return _create_ollama_batch(jobs, candidate_profile)
     return None
 
+def _create_ollama_batch(jobs, candidate_profile):
+    """
+    Simulates a batch API for Ollama by running concurrent requests.
+    Returns a special string 'ollama_local_sync' plus the results JSON.
+    """
+    import concurrent.futures
+    import json
+    import re
+
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        future_to_job = {}
+        for job in jobs:
+            prompt = _build_score_prompt(job, candidate_profile)
+            future = executor.submit(_ollama, prompt)  # only one argument
+            future_to_job[future] = job
+
+        for future in concurrent.futures.as_completed(future_to_job):
+            job = future_to_job[future]
+            custom_id = job.get("id")
+            try:
+                raw_text = future.result()
+                # Clean JSON
+                raw_text = re.sub(r"^```[a-z]*\n?", "", raw_text)
+                raw_text = re.sub(r"\n?```$", "", raw_text).strip()
+                data = json.loads(raw_text)
+                results.append({
+                    "custom_id": custom_id,
+                    "score": int(data.get("score", 0)),
+                    "reason": str(data.get("reason", ""))[:120]
+                })
+            except Exception as e:
+                results.append({
+                    "custom_id": custom_id,
+                    "score": 0,
+                    "reason": f"Ollama error: {str(e)}"
+                })
+
+    # Return a marker that the batch is done and include the results
+    return f"LOCAL_BATCH_DONE:{json.dumps(results)}"
+    
 
 def _create_anthropic_batch(jobs, candidate_profile):
     import anthropic
