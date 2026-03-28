@@ -296,23 +296,27 @@ def resume_diff():
     journal_text = "\n".join(
         f"[{e['created_at'][:10]}] {e['entry']}" for e in reversed(entries)
     )
-    prompt = f"""You are a resume advisor for a software engineer.
+    prompt = f"""You are an expert Resume Advisor specializing in Full Stack Engineering and AI Development.
 
-Below are their recent work journal entries:
+    Below are the user's recent work journal entries:
 
-{journal_text}
+    {journal_text}
 
-Their current resume covers:
-- RapidNode: AI data pipeline, Go monitoring, LangChain agent
-- Clamp: ERC4337, gas optimisation, React Native
-- Syntax Studios: Web3 Chrome wallet, Coinbase swap widget
+    The user's current resume is focused on Full Stack Development, specifically:
+    - AI & RAG Systems: Building and deploying "Tessera" (RAG agent) on Vercel.
+    - Backend & Rust: Developing Rust Rocket and Axum-based services, including real-time chat rooms.
+    - Frontend & Dashboards: Creating the Covalent Vibe Dashboard using Next.js and Tailwind CSS.
+    - DevRel/Solutions Engineering: Technical documentation and developer advocacy at BuildBear.
 
-Based on the journal entries, suggest specific resume updates:
-1. New bullet points to add (with exact LaTeX \\item text)
-2. Existing bullets to strengthen with new details
-3. New skills to add to the skills section
+    Based on the journal entries, suggest specific resume updates:
 
-Be specific and concise. Format as a clear numbered list."""
+    1. NEW BULLET POINTS: Provide exact LaTeX \item text for the "Projects" or "Experience" sections. Focus on engineering challenges, performance metrics, and deployment (Vercel, Railway).
+    2. STRENGTHENING EXISTING BULLETS: Suggest ways to improve current bullet points by adding quantifiable results (e.g., latency reduction in RAG pipelines or API response times).
+    3. TECHNICAL SKILLS: Identify new frameworks, libraries (e.g., LangChain, Axum, Rocket), or tools mentioned in the journal that should be added to the "Technical Skills" section.
+
+    CRITICAL CONSTRAINT: Do not include or suggest updates related to Web3 security audits, smart contract vulnerabilities, or bug bounty hunting. This resume is strictly for Full Stack and AI Engineering roles.
+
+    Format your response as a clear numbered list."""
     suggestions = llm.chat(prompt, max_tokens=800, temperature=0.4)
     return {"suggestions": suggestions}
 

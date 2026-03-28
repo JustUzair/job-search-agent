@@ -1,66 +1,45 @@
-\documentclass[letter,10pt]{article}
-\usepackage{TLCresume}
-\begin{document}
+\section{{\color{MidnightBlue}{Projects}}}
+\vspace{-10pt}
+\resumeSubHeadingListStart
 
-\subsection{{ \href{https://github.com/Suhel-Kap/crypto-exchanger}{Multichain cryptocurrency exchange} \hfill FEB 2024}}
-\begin{zitemize}
-  \item Built backend for cross-network token deposits with Redis-based transaction recovery
-  \item \textbf{Tech}: Node.js, PostgreSQL, Redis, Docker, TypeScript
-\end{zitemize}
+% --- Tessera RAG Platform ---
+\resumeProjectHeading
+{\textbf{Tessera} $|$ {\color{blue}\href[pdfnewwindow=true]{https://tessera-rag-ai.vercel.app}{\underline{Live Demo}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://github.com/JustUzair/Tessera-RAG-AI}{\underline{Github}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://documenter.getpostman.com/view/20867739/2sBXihrYt8}{\underline{API Docs}}}}
+\vspace{-5pt}
+\resumeItemListStart
+\resumeItem{\textit{\textbf{Next.js 16}, \textbf{Express}, \textbf{MongoDB Atlas}, \textbf{LangChain}, \textbf{Vector Search}, \textbf{Zod}, \textbf{Framer Motion}, \textbf{Spline}}}
+\resumeItem{Built a \textbf{production RAG platform} where users upload documents, ask questions, and receive \textbf{citation-backed answers with zero hallucination}. Every response includes clickable source chunks proving where the answer originated.}
+\resumeItem{Architected \textbf{constraint-based agent design}: LangChain agent forbidden from answering until invoking \texttt{kb\_search} tool. \textbf{Structured JSON via Zod} prevents model responses from violating schema. Eliminates hallucination at the system level, not prompt engineering.}
+\resumeItem{Engineered \textbf{semantic embedding cache} via CacheBackedEmbeddings to MongoDB KV store: document re-upload drops from \textbf{2.31s to 421ms} (82\% reduction). Namespace-based deduplication eliminates wasted embedding API calls.}
+\resumeItem{Frontend: 3D Spline hero, Framer Motion animations, drag-and-drop KB panel, conversation threading, paginated history, full dark mode. \textbf{Lighthouse: Performance 92, Accessibility 96, Best Practices 100, SEO 100}.}
+\resumeItem{Deployed on Vercel with Postman API docs and Vitest test suite validating ingestion, querying, schema enforcement, and citation integrity.}
+\resumeItemListEnd
 
-\subsection{{ \href{https://github.com/0xabh/caravan}{Caravan} Winner - Best UMA Use Case, EthOnline 2023 \hfill OCT 2023}}
-\begin{zitemize}
-  \item Developed cross-chain ERC4337 browser extension supporting 7+ blockchain networks
-  \item Integrated social recovery mechanism and automated DAI staking (sDAI)
-  \item \textbf{Tech}: Solidity, React, TypeScript, Tableland, UMA Across
-\end{zitemize}
-% % Use noheader page style for the subsequent pages
-% \pagestyle{noheader}
-%   \item Added \textbf{automated staking} for DAI (sDAI) with easy conversion back to DAI.
-%   \item Technologies: \textbf{Tableland, UMA Across, Spark}, Solidity, React JS, Typescript.
+\vspace{-10pt}
 
+% --- AXIOM ---
+\resumeProjectHeading
+{\textbf{AXIOM} $|$ {\color{blue}\href[pdfnewwindow=true]{https://axiom-ai-justuzair.vercel.app}{\underline{Live Demo}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://axiom-lcel-backend-justuzair.vercel.app}{\underline{Backend}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://documenter.getpostman.com/view/20867739/2sBXcLgHZF}{\underline{API Docs}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://github.com/JustUzair/axiom-lcel-rag}{\underline{Github}}}}
+\vspace{-5pt}
+\resumeItemListStart
+\resumeItem{\textit{\textbf{TypeScript}, \textbf{Next.js}, \textbf{Express}, \textbf{LangChain LCEL}, \textbf{LightRAG}, \textbf{Tavily}, \textbf{Spline}, \textbf{Vercel Serverless Functions}}}
+\resumeItem{Engineered a dual-mode AI search engine with a deterministic router using \textbf{30+ regex patterns} across 8 intent categories (pricing, recency, comparisons, URLs, reviews, etc.) to eliminate unnecessary LLM calls.}
+\resumeItem{Web pipeline scrapes and summarizes the \textbf{top 5 results} in parallel, with graceful snippet fallback; KB pipeline chunks documents with a \textbf{200-char overlap window}, embedded as \textbf{Light-RAG}, and returns confidence-scored answers with full source citations.}
+\resumeItem{Covered both pipelines with a \textbf{Vitest} integration test suite validating ingestion, querying, \textbf{Zod} schema enforcement (400s on bad input), and citation integrity; deployed rate-limited \textbf{Express} backend on \textbf{Vercel Serverless}.}
+\resumeItem{Built a polished \textbf{Next.js} frontend featuring a \textbf{Spline 3D} hero, mouse-tracked spotlight, ambient orb backgrounds, per-word answer streaming reveals, and scramble-on-mount text animations via \textbf{Framer Motion}.}
+\resumeItemListEnd
 
-\subsection{{ \href{https://github.com/Suhel-Kap/the-crypto-studio}{The Crypto Studio} Runner-up Social Hour Hackathon, IPFS Microgrant \hfill NOV 2022 - JAN 2023}}
-\begin{zitemize}
-  \item Created NFT platform supporting dynamic visualizations and audio-enhanced NFTs
-  \item \textbf{Tech}: Next.js, TypeScript, IPFS, Solidity
+\vspace{-10pt}
+% --- Mintrrs ---
+\resumeProjectHeading
+{\textbf{Mintrrs} $|$ {\color{blue}\href[pdfnewwindow=true]{https://github.com/JustUzair/NFT-Generator}{\underline{Github}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://www.postman.com/justuzair/workspace/justuzair-ughsal-nft-gen-nextjs}{\underline{API Docs}}}}
+\vspace{-5pt}
+\resumeItemListStart
+\resumeItem{\textit{\textbf{Next.js}, \textbf{TypeScript}, \textbf{Tailwind}, \textbf{Solidity}, \textbf{Foundry}, \textbf{Wagmi}, \textbf{Viem}, \textbf{IPFS}, \textbf{MongoDB}}}
+\resumeItem{Designed and deployed a \textbf{Factory Pattern} smart contract system, \texttt{NFTCollectionFactory} deploys isolated \textbf{ERC1155} collection contracts per artist, with \textbf{OpenZeppelin} Pausable, Supply, and Ownable extensions; tested end-to-end with a \textbf{Foundry} test suite and Forge deploy scripts.}
+\resumeItem{Implemented dual-payment minting in Solidity accepting \textbf{native ETH} or \textbf{ERC20 (USDC)} via \texttt{transferFrom}, with per-address holder dedup via nested mappings, \textbf{batch minting}, and an \textbf{owner revenue withdrawal} function.}
+\resumeItem{Serverless \textbf{Next.js} API routes handle SVG layer combination, \textbf{hash-map-based} duplicate prevention, and algorithmic generation; automated \textbf{IPFS} pipeline via \textbf{Pinata} pins images and metadata as a directory with the collection URI written on-chain post-deploy.}
+\resumeItemListEnd
 
-\subsection{{ \href{https://github.com/Suhel-Kap/coinbase-swap-widget}{Coinbase CDP Swap \& Onramp Widget} \hfill 2024}}
-\begin{zitemize}
-  \item Production-ready DeFi widget for token swapping and crypto purchasing on Base network with real-time quotes, smart routing, and email/OTP-based wallet authentication
-  \item Implemented precise token approvals and on-chain transaction confirmation to minimize attack surface and prevent race conditions
-  \item Built Next.js 15 App Router with modular components, custom React hooks, TanStack Query, and comprehensive Playwright E2E test suite across multiple browsers and viewports
-  \item \textbf{Tech}: Next.js 15, TypeScript, viem, Tailwind CSS, TanStack Query, Coinbase CDP, Radix UI, Playwright
-\end{zitemize}
-
-\subsection{{ \href{https://github.com/Suhel-Kap/hiringcafe-dataset-job-search}{HiringCafe AI Job Search CLI} \hfill 2024}}
-\begin{zitemize}
-  \item Built conversational job search engine over 100K US job postings using hybrid vector similarity (pgvector HNSW) and structured SQL filtering with multi-vector relevance ranking
-  \item Engineered data pipeline analyzing 8GB JSONL file, designed 79-column PostgreSQL schema, and implemented two-pass ingestion to handle large vector writes efficiently
-  \item Implemented multi-turn conversation with sliding window token optimization and dynamic filter value injection to prevent LLM hallucinations
-  \item \textbf{Tech}: Python 3.12, PostgreSQL 16 + pgvector, OpenAI GPT-5.1, SQLAlchemy, Alembic, Typer
-\end{zitemize}
-
-\subsection{{ \href{https://github.com/Suhel-Kap/the-crypto-studio}{The Crypto Studio} Runner-up Social Hour Hackathon, IPFS Microgrant \hfill NOV 2022 - JAN 2023}}
-\begin{zitemize}
-  \item Created NFT platform supporting dynamic visualizations and audio-enhanced NFTs
-  \item \textbf{Tech}: Next.js, TypeScript, IPFS, Solidity
-\end{zitemize}
-\end{zitemize}
-
-
-
-%====================
-% EXPERIENCE C
-%====================
-%\subsection{{ROLE / PROJECT E \hfill MMM YYYY --- MMM YYYY}}
-%\subtext{company E \hfill somewhere, state}
-%\begin{zitemize}
-%\item In lobortis libero consectetur eros vehicula, vel pellentesque quam fringilla.
-%\item Ut malesuada purus at mi placerat dapibus.
-%\item Suspendisse finibus massa eu nisi dictum, a imperdiet tellus convallis.
-%\item Nam feugiat erat vestibulum lacus feugiat, efficitur gravida nunc imperdiet.
-%\item Morbi porta lacus vitae augue luctus, a rhoncus est sagittis.
-%\end{zitemize}
-
-\end{document}
+\resumeSubHeadingListEnd
+\vspace{-10pt}

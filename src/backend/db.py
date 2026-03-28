@@ -5,14 +5,17 @@ import json
 DB_PATH = os.environ.get("DB_PATH", "/app/data/jobs.db")
 
 DEFAULT_CONFIG = {
-    "keywords": ["web3", "blockchain", "solidity", "fullstack", "backend", "node.js", "go", "python", "AI", "LLM"],
+    "keywords": [
+        "rust", "axum", "rocket", "ai", "rag", "langchain", "langgraph", 
+        "next.js", "typescript", "fullstack", "backend", "solana", 
+        "smart contract", "web3 security"
+    ],
     "work_type": ["remote"],
     "min_yoe": 0,
     "max_yoe": 5,
-    "exclude_locations": ["onsite US", "onsite UK", "onsite Europe", "in-office"],
+    "exclude_locations": ["onsite US", "onsite UK", "onsite Europe", "in-office", "hybrid"],
     "score_threshold": 60,
-    # Title substrings (case-insensitive) that instantly disqualify a job before LLM scoring.
-    # Edit via Config page (raw JSON) or PUT /api/config.
+    # Title substrings to instantly disqualify
     "skip_title_patterns": [
         "marketing manager", "content writer", "content strategist", "seo specialist",
         "social media manager", "social media specialist", "brand manager",
@@ -316,18 +319,17 @@ def set_config(cfg):
     conn.close()
 
 
-DEFAULT_PROFILE = """Suhel Kapadia — Full Stack Engineer, 2+ years, Gujarat India, open to remote only.
+DEFAULT_PROFILE = """Uzair Saiyed — Full Stack & AI Engineer, 2x Global Hackathon Winner, Gujarat India, open to remote only.
 
-Skills: Solidity, ERC4337, Hardhat, Ethers.js, Wagmi, Viem, OpenZeppelin, RainbowKit,
-Node.js, NestJS, Go, Python, TypeScript, PostgreSQL, MongoDB, Redis, RabbitMQ,
-React, Next.js, TailwindCSS, LangChain, PGVector, Docker, Prometheus, Grafana, AWS.
+Skills: Node.js, Next.js, TypeScript, Tailwind, RAG, LangGraph, 
+LangChain, Vector Databases, Solidity, Rust (Axum), Solana, MongoDB, PostgreSQL, Docker, Vercel.
 
-Recent work: AI data pipeline (Go/Python/NestJS), ERC4337 accounts 60% gas reduction,
-AI agent on 10k tweets/day, 10k-node Go monitoring service, Web3 Chrome wallet,
-Coinbase swap widget.
+Recent work: Built a local AI Smart Contract Auditor with cloud LLM integration, 
+Deployed "Tessera" (RAG AI agent), Developed real-time Rust Rocket chat room, 
+Solutions Engineering & DevRel for Web3 dev tools.
 
-Wants: Remote Web3 / backend / AI / fullstack roles.
-Hard no: onsite roles, mobile-only, pure frontend, US/EU in-office."""
+Wants: Remote AI Engineering / Rust / Backend / Fullstack roles.
+Hard no: Onsite roles, Hybrid roles, pure frontend, mobile-only."""
 
 
 def get_profile() -> str:

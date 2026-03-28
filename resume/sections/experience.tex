@@ -1,87 +1,55 @@
-\documentclass[letter,10pt]{article}
-\usepackage{TLCresume}
-\begin{document}
+\section{{\color{MidnightBlue}{Experience}}}
+\resumeSubHeadingListStart
+\vspace{5pt}
 
-\subsection{{Fullstack Web3 Developer \hfill JUL 2024 --- PRESENT}}
-\subtext{RapidNode \hfill Remote, India}
-\begin{zitemize}
-  \item \textbf{Leading development} of enterprise AI data pipeline: orchestrating data ingestion from multiple sources into data lake, AI-powered transformation and scoring, and modular leaderboard generation system
-  \item Architected scalable, cost-optimized scoring pipeline enabling project-specific leaderboards while maintaining performance across diverse client requirements
-  \item Engineered AI agent (Python, LangChain, PGVector) automating airdrop discovery from 10k+ daily tweets
-  \item Built enterprise One View dashboard for investment firms tracking Discord, Twitter, and Telegram ecosystems
-  \item Developed Go-based monitoring service handling 10,000+ nodes with Prometheus integration
-  \item \textbf{Tech}: Go, Python, PostgreSQL, NestJS, TypeScript, RabbitMQ, Prometheus, Grafana
-\end{zitemize}
+% --- Contract Work ---
+\resumeSubheading{DeFi Protocol - Contract Work (NDA) $|$ AI \& Web3 Developer}{Nov 2025 - Jan 2026}{Remote, USA}{}
+\resumeItemListStart
+\vspace{1pt}
+\resumeItem{Co-engineered an \textbf{EIP-7540 async vault} in \textbf{Solidity} with \href{https://arbiscan.io/address/0x9E832AB95765d730FCFA1e646aaae875f2532D25}{\underline{\color{internal_link}\textbf{mainnet deployment on Arbitrum}}}, enabling permissioned execution for both human and AI agents via \textbf{MetaMask Delegation Toolkit}; contributed the core liquidity tracking model for deployed and undeployed vault positions that was adopted into the final implementation.}
+\resumeItem{Authored a \textbf{custom GMX \texttt{createOrder} calldata generation script} from scratch as a workaround for a buggy internal on-chain-actions product, pairing raw calldata construction with the \textbf{GMX SDK} and \textbf{MetaMask delegation signatures} to enable fully permissioned trade execution from the vault.}
+\resumeItem{Built and delivered a \textbf{vault-less GMX x Allora AI trading agent} in \textbf{TypeScript/LangGraph} as a standalone backend proof-of-concept, executing real-time longs and shorts on \textbf{Arbitrum} driven by \textbf{Allora network} price predictions; validated on \textbf{Tenderly mainnet fork} with zero reverts, delivered within \textbf{2 weeks} including learning \textbf{LangGraph} from scratch.}
+\resumeItem{Developed agentic hire/fire interface via \textbf{CopilotKit}, enabling users to spawn, control, and terminate trading agents through natural language with on-chain settlement.}
+\resumeItemListEnd
 
+\vspace{1pt}
 
-\subsection{{Fullstack Developer (Part-time) \hfill MAY 2025 --- PRESENT}}
-\subtext{Syntax Studios \hfill Remote}
-\begin{zitemize}
-  \item Developed a \textbf{Web3 Chrome wallet extension} with Privy social login and cross-chain functionality
-  \item Maintained online quizzing platform, fixing production issues and implementing new features
-  \item \textbf{Tech}: React, Next.js, Node.js, TailwindCSS, Privy, Solidity, MongoDB
-\end{zitemize}
+% --- BuildBear (REFRAMED) ---
+\resumeSubheading{BuildBear Labs $|$ Web3 Developer and Solutions Engineer}{Jan 2025 - Nov 2025}{Remote, Singapore}{}
+\vspace{1pt}
+\resumeItemListStart
 
+\resumeItem{Owned and maintained production \textbf{Next.js documentation platform} built with \textbf{Fumadocs}, migrating content from \textbf{Strapi} to \textbf{MDX React components}; shipped weekly updates alongside backend and frontend releases, implementing \textbf{Open Graph metadata} and \textbf{SEO optimization} to improve developer-facing discoverability.}
 
+\resumeItem{Authored the reference \textbf{GitHub Actions CI/CD template} for Web3 protocol repos, enabling \textbf{fork-based and fuzz testing} against live contract state via \textbf{BuildBear} sandboxes; supported \textbf{Liquity} and \textbf{Consensys} teams in adopting the workflow into their infrastructure.}
 
-\subsection{{ Fullstack Blockchain Developer \hfill JUN 2023 --- JUN 2024}}
-\subtext{Clamp \hfill Mumbai, India}
-\begin{zitemize}
-  \item Developed ERC4337 smart contract accounts using Factory pattern, reducing gas costs by 60\%
-  \item Migrated React app to Next.js and launched React Native mobile app with CI/CD pipelines
-  \item Created ERC20 token-based rewards system and custom RainbowKit connector for Magic Auth
-  \item \textbf{Tech}: Solidity, Next.js, Node.js, TypeScript, MongoDB, React Native
-\end{zitemize}
+\resumeItem{Engineered a \textbf{mainnet-synchronized Uniswap V2 pool simulation tool} for a client protocol fork, pulling live \textbf{Chainlink} price data via BuildBear plugins, then minting/burning pool liquidity to mirror mainnet state; bypassed EVM transfer restrictions on pool contracts by deploying a \textbf{self-destruct contract} to force-feed tokens to liquidity-pools, resolving a blocker no standard approach could address.}
 
-% \subsection{{Fullstack Web3 Developer Intern \hfill JAN 2023 --- APR 2023}}
-% \subtext{Datanominee, Pesu Venture Labs \hfill Bangalore, India}
-% \begin{zitemize}
-%   \item Implemented \textbf{NFT storage} for file uploads to \textbf{IPFS}.
-%   \item Integrated \textbf{Firebase login} into the web application.
-%   \item Utilized \textbf{Instagram Graph API} to fetch user posts.
-%   \item Optimized \textbf{MongoDB} database queries through redesign.
-%   \item Deployed the web application on \textbf{AWS Amplify}.
-%   \item Technologies used: Solidity, React JS, NodeJS, JavaScript, MongoDB, Firebase, AWS Amplify.
-% \end{zitemize}
-% \begin{zitemize}
-% \item Implemented Firebase login for the web application.
-% \item Redesigned the MongoDB database to optimize queries.
-% \item Deployed the web application to AWS Amplify.
-% \item Technologies used: React JS, NodeJS, Javascript
-% \end{zitemize}
+\resumeItem{Built reference integration repos for \textbf{Batua} (passkey wallet), \textbf{x402 protocol}, and \textbf{Pimlico} paymasters with BuildBear; produced video walkthroughs for \href{https://www.buildbear.io/docs/tutorials/across-plugin-tutorial\#step-by-step-video-tutorial}{\underline{\color{internal_link}\textbf{Across}}}, \href{https://www.buildbear.io/docs/tutorials/lifi-plugin-tutorial\#step-by-step-video-tutorial}{\underline{\color{internal_link}\textbf{LI.FI}}}, and \href{https://www.buildbear.io/docs/tutorials/pimlico-paymaster\#step-by-step-video-tutorial}{\underline{\color{internal_link}\textbf{Pimlico}}} adopted as official plugin documentation; unblocked partner dev-cycles for bridge testing where no viable testnet existed, driving \textbf{50+ plugin adoptions within 30 days}.}
+\vspace{-10pt}
+\resumeItem{Performed \textbf{black-box testing} on pre-release features, surfacing edge-case failures and routing structured feedback to product, frontend, and backend teams.}
 
+\resumeItemListEnd
 
-% \subsection{{Intern / Full Stack Web Development \hfill APR 2021 --- AUG 2021}}
-% \subtext{Metier Organisation (Startup) \hfill Surat, Gujarat}
-% \begin{zitemize}
-% \item Created the front end using HTML, CSS, Bootstrap and EJS.
-% \item Implemented the backend using NodeJS and set up a MongoDB server.
-% \item Created the UI for best possible business gains.
-% \end{zitemize}
+\vspace{1pt}
 
+% --- Nethermind ---
+\resumeSubheading{Nethermind $|$ Smart Contract Auditor Intern}{Sept 2024 - Dec 2024}{Remote, United Kingdom}{}
+\resumeItemListStart
+\resumeItem{Conducted security reviews across \textbf{re-staking} protocols, \textbf{AA paymasters}, \textbf{bridges}, \textbf{governance} modules, and \textbf{proof-of-liquidity} mechanisms in \textbf{Solidity} and \textbf{Cairo}.}
+\resumeItem{Reported critical vulnerabilities with actionable mitigations; contributed to private audit reports at leading Web3 security firm.}
+\resumeItemListEnd
 
-%====================
-% EXPERIENCE C
-%====================
-% \subsection{{Cloud Facilitator \hfill SEP 2021 --- OCT 2021}}
-% \subtext{GDSC, SCET \hfill Surat, Gujarat}
-% \begin{zitemize}
-% \item Helped students to explore and commence their Google Cloud journey.
-% \item Conducted interactive live sessions.
-% \item Mentored over 100 students to kickstart their journey in the Cloud.
-% \end{zitemize}
+\vspace{1pt}
 
-%====================
-% EXPERIENCE E
-%====================
-%\subsection{{ROLE / PROJECT E \hfill MMM YYYY --- MMM YYYY}}
-%\subtext{company E \hfill somewhere, state}
-%\begin{zitemize}
-%\item In lobortis libero consectetur eros vehicula, vel pellentesque quam fringilla.
-%\item Ut malesuada purus at mi placerat dapibus.
-%\item Suspendisse finibus massa eu nisi dictum, a imperdiet tellus convallis.
-%\item Nam feugiat erat vestibulum lacus feugiat, efficitur gravida nunc imperdiet.
-%\item Morbi porta lacus vitae augue luctus, a rhoncus est sagittis.
-%\end{zitemize}
+% --- Kyte Social ---
+\resumeSubheading{Kyte Social $|$ Full Stack Web2 and Web3 Intern}{April 2024 - July 2024}{Remote, India}{}
+\resumeItemListStart
+\resumeItem{Integrated on-chain smart contracts with frontend using \textbf{Next.js}, \textbf{Wagmi}, \textbf{Viem}; synced blockchain and backend state via \textbf{MongoDB}.}
+\resumeItem{Built user-facing NFT collection creator that \textbf{reduced deployment time by 90\%}, abstracting ERC721/ERC1155 Factory complexity behind intuitive form interface.}
+\resumeItem{Developed and tested \textbf{Solidity} smart contracts with \textbf{Foundry} (unit, fuzz, invariant testing); implemented off-chain reward claims via \textbf{Node.js} signing.}
+\resumeItemListEnd
 
-\end{document}
+\vspace{1pt}
+\resumeSubHeadingListEnd
+\vspace{-10pt}

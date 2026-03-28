@@ -1,4 +1,4 @@
-FROM gpt-oss:20b-cloud
+FROM glm-5:cloud
 
 PARAMETER temperature 0
 PARAMETER top_p 0.1

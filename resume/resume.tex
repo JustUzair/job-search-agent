@@ -1,72 +1,108 @@
-\documentclass[letter,10pt]{article}
-\usepackage[utf8]{inputenc}
+\documentclass[letterpaper, 11pt]{article}
 
-%====================
-% File:         resume.tex
-% Notes:        All formatting is done in TLCresume.sty
-%               No need to touch that file. 
-%               All actual content is in the sections/ folder.
-%====================
+\usepackage{latexsym}
+\usepackage[empty]{fullpage}
+\usepackage{titlesec}
+\usepackage{marvosym}
+\usepackage[usenames, dvipsnames]{color}
+\usepackage{verbatim}
+\usepackage{enumitem}
+\usepackage[hidelinks]{hyperref}
+\usepackage{fancyhdr}
+\usepackage[english]{babel}
+\usepackage{tabularx}
+\usepackage{fontawesome5}
+\usepackage[dvipsnames]{xcolor}
+\usepackage{multicol}
+\usepackage[dvipsnames]{xcolor}
+\setlength{\multicolsep}{-3.0pt}
+\setlength{\columnsep}{-1pt}
+\input{glyphtounicode}
 
-\usepackage{TLCresume}
+%----------FONT OPTIONS----------
+% sans-serif
+% \usepackage[sfdefault]{FiraSans}
+% \usepackage[sfdefault]{roboto}
+% \usepackage[sfdefault]{noto-sans}
+% \usepackage[default]{sourcesanspro}
 
-%====================
-% CONTACT INFORMATION
-%====================
-\def\name{Suhel Kapadia} % Name Here
-\def\phone{+91 8140602980}
-\def\city{Gujarat, India}
-\def\email{suhelkapadia2@gmail.com}
-\def\LinkedIn{suhel-kapadia} % linkedin.com/in/______
-\def\github{Suhel-Kap} % github username
-\def\role{Software Development Engineer} % JOB TITLE
+% serif
+% \usepackage{CormorantGaramond}
+% \usepackage{charter}
+
+\pagestyle{fancy}
+\fancyhf{} % clear all header and footer fields
+\fancyfoot{}
+\renewcommand{\headrulewidth}{0pt}
+\renewcommand{\footrulewidth}{0pt}
+
+% Adjust margins
+\addtolength{\oddsidemargin}{-0.6in}
+\addtolength{\evensidemargin}{-0.5in}
+\addtolength{\textwidth}{1.19in}
+\addtolength{\topmargin}{-.7in}
+\addtolength{\textheight}{1.4in}
+
+\urlstyle{same}
+
+\raggedbottom
+\raggedright
+\setlength{\tabcolsep}{0in}
+
+% Sections formatting
+\titleformat{\section}{\vspace{-4pt}\scshape\raggedright\large\bfseries}{}{0em}{}[
+\color{black}
+\titlerule
+\vspace{-5pt}
+]
+
+% Ensure that generate pdf is machine readable/ATS parsable
+\pdfgentounicode=1
 
 \input{_header}
 
-% Define a new pagestyle with no header
-\fancypagestyle{noheader}{
-  \fancyhf{}
-  \renewcommand{\headrulewidth}{0pt}
-  \setlength{\topmargin}{-0.5in}
-  \setlength{\headheight}{0pt}
-  \setlength{\headsep}{0pt}
-}
-
+%-------------------------
+% Resume starts here
 \begin{document}
 
-% Use fancy page style for the first page
-\thispagestyle{fancy}
+%----------HEADING----------
+\begin{center}
+    {\Huge \scshape Uzair Saiyed} \\
+    \vspace{1pt}
+    Gujarat, India \\
+    \vspace{1pt}
+    {\color{MidnightBlue}\href[pdfnewwindow=true]{mailto:justuzairsaiyed@gmail.com}{\raisebox{-0.1\height}{\faEnvelope}\ \underline{justuzairsaiyed@gmail.com}}}~
+    {\color{MidnightBlue}\href[pdfnewwindow=true]{https://linktr.ee/JustUzair}{\raisebox{-0.1\height}{\faLink}\ \underline{Links}}}~
+    {\color{MidnightBlue}\href[pdfnewwindow=true]{https://linkedin.com/in/0xJustUzair}{\raisebox{-0.1\height}{\faLinkedin}\ \underline{0xJustUzair}}}~
+    {\color{MidnightBlue}\href[pdfnewwindow=true]{https://github.com/JustUzair}{\raisebox{-0.1\height}{\faGithub}\ \underline{JustUzair}}}~
+    \vspace{-8pt}
+\end{center}
 
-\input{sections/objective}
+%-----------SUMMARY-----------
+\input{sections/summary}
 
-\section{Experience}
+%-----------EXPERIENCE-----------
+\section{{\color{MidnightBlue}{Experience}}}
 \input{sections/experience}
 
-\section{Projects}
+%-----------PROJECTS-----------
+\section{{\color{MidnightBlue}{Projects}}}
 \input{sections/projects}
 
-
-% \newpage
-
-\section{Education}
-\input{sections/education}
-
-\section{Skills}
+%-----------TECHNICAL SKILLS-----------
+\section{{\color{MidnightBlue}{Technical Skills}}}
 \input{sections/skills}
 
-% \section{Web3 Security}
-% \input{sections/security}
+%-----------CERTIFICATIONS-----------
+\section{{\color{MidnightBlue}{Certifications}}}
+\input{sections/certifications}
 
-\section{Achievements}
+%-----------ACHIEVEMENTS-----------
+\section{{\color{MidnightBlue}{Achievements}}}
 \input{sections/achievements}
 
-% \section{Position of Responsibility}
-% \input{sections/por}
-
-% \section{Certifications}
-% \input{sections/certifications}
-
-% \section{Additional Interests}
-% \input{sections/hobbies}
+%-----------EDUCATION-----------
+\section{{\color{MidnightBlue}{Education}}}
+\input{sections/education}
 
 \end{document}

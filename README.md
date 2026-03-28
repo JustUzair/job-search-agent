@@ -145,13 +145,13 @@ If you want to use the specialized coding assistant configuration included in th
 2. Create the custom model:
 
 ```bash
-ollama create gpt-resume-agent -f Modelfile
+ollama create glm-5:cloud -f Modelfile
 ```
 
 3. Update your `.env` to use the custom model:
 
 ```
-MODEL_NAME=gpt-resume-agent
+MODEL_NAME=glm-5:cloud
 ```
 
 This custom model includes detailed instructions for code quality, architecture, and best practices built into the system prompt.
@@ -222,8 +222,8 @@ To try a different model (including your custom model):
 
 1. Pull or create the model:
    - `ollama pull llama2:70b` (pull remote)
-   - `ollama create gpt-resume-agent -f Modelfile` (create from local Modelfile)
-2. Update `.env`: `MODEL_NAME=llama2:70b` or `MODEL_NAME=gpt-resume-agent`
+   - `ollama create glm-5:cloud -f Modelfile` (create from local Modelfile)
+2. Update `.env`: `MODEL_NAME=llama2:70b` or `MODEL_NAME=glm-5:cloud`
 3. Restart: `docker compose down && docker compose up`
 
 ### Pros & Cons
