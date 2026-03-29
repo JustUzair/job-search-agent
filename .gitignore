@@ -12,3 +12,4 @@ dump.rdb
 *.zip
 
 /data/resumes
+node_modules/
