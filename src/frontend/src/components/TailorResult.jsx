@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { refineVariant, getVariantPdfUrl, getVariantZipUrl } from '../api.js'
+import { useState } from "react";
+import { refineVariant, getVariantPdfUrl, getVariantZipUrl } from "../api.js";
 
 /**
  * Shows a tailor/edit result with a feedback loop.
@@ -7,45 +7,54 @@ import { refineVariant, getVariantPdfUrl, getVariantZipUrl } from '../api.js'
  * The user can type feedback and refine iteratively; each round overwrites the displayed result.
  */
 export default function TailorResult({ initialResult }) {
-  const [result, setResult] = useState(initialResult)
-  const [feedback, setFeedback] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState(null)
-  const [round, setRound] = useState(0) // how many refinements so far
+  const [result, setResult] = useState(initialResult);
+  const [feedback, setFeedback] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [round, setRound] = useState(0); // how many refinements so far
 
   const handleRefine = async () => {
-    if (!feedback.trim()) return
-    setLoading(true)
-    setError(null)
+    if (!feedback.trim()) return;
+    setLoading(true);
+    setError(null);
     try {
-      const refined = await refineVariant(result.variant_id, feedback)
-      setResult(refined)
-      setFeedback('')
-      setRound(r => r + 1)
+      const refined = await refineVariant(result.variant_id, feedback);
+      setResult(refined);
+      setFeedback("");
+      setRound(r => r + 1);
     } catch (e) {
-      setError(e.message)
+      setError(e.message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }
+  };
 
   return (
     <div className="space-y-3">
       {/* Result header */}
       <div className="bg-slate-700/50 rounded-lg p-3 text-sm">
         <div className="flex items-center gap-2 text-emerald-400 font-medium mb-1.5">
-          <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          <svg
+            className="h-4 w-4"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M5 13l4 4L19 7"
+            />
           </svg>
           {round > 0
-            ? `Refined (round ${round}) — ${result.company || 'done'}`
-            : `Tailored for ${result.company || 'done'}`
-          }
+            ? `Refined (round ${round}) — ${result.company || "done"}`
+            : `Tailored for ${result.company || "done"}`}
         </div>
 
         {result.changed_files?.length > 0 && (
           <div className="text-xs text-slate-400 mb-2 font-mono">
-            {result.changed_files.join('  ·  ')}
+            {result.changed_files.join("  ·  ")}
           </div>
         )}
 
@@ -98,9 +107,9 @@ export default function TailorResult({ initialResult }) {
           disabled={loading || !feedback.trim()}
           className="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-xs rounded font-medium transition-colors"
         >
-          {loading ? '⟳ Refining…' : '↺ Refine'}
+          {loading ? "⟳ Refining…" : "↺ Refine"}
         </button>
       </div>
     </div>
-  )
+  );
 }

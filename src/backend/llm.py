@@ -11,6 +11,8 @@ import os
 import json
 import re
 
+# Set LLM_VERBOSE=true in .env to see raw model output before JSON parsing
+LLM_VERBOSE = os.environ.get("LLM_VERBOSE", "").lower() in ("1", "true", "yes")
 PROVIDER = os.environ.get("MODEL_PROVIDER", "ollama").lower()
 API_KEY  = os.environ.get("MODEL_API_KEY", "ollama") or os.environ.get("OPENAI_API_KEY", "") # ollama doesnt need an api key
 MODEL    = os.environ.get("MODEL_NAME", "gpt-oss:20b-cloud")
@@ -65,11 +67,18 @@ def _ollama(prompt):
 def chat_json(prompt: str, max_tokens: int = 200) -> dict:
     """Like chat() but strips fences and parses JSON, returns {} on failure."""
     raw = chat(prompt, max_tokens=max_tokens, temperature=0.1)
+
+    if LLM_VERBOSE:
+        preview = raw.replace("\n", " ").strip()
+        print(f"  [llm:raw]   {preview[:300]}")
+
     raw = re.sub(r"^```[a-z]*\n?", "", raw)
     raw = re.sub(r"\n?```$", "", raw).strip()
     try:
         return json.loads(raw)
-    except Exception:
+    except Exception as e:
+        if LLM_VERBOSE:
+            print(f"  [llm:parse_fail]  {e}  →  {raw[:200]}")
         return {}
 
 

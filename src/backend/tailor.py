@@ -17,18 +17,17 @@ RESUME_DIR = os.environ.get("RESUME_DIR", "/app/resume")
 RESUME_OUT_DIR = "/app/data/resumes"
 
 TAILOR_TARGETS = {
-    "sections/objective.tex",
+    "sections/summary.tex",      # ← was summary.tex
     "sections/experience.tex",
     "sections/skills.tex",
     "sections/projects.tex",
     "sections/achievements.tex",
-    "sections/security.tex",
+    # "sections/security.tex",
 }
 
 COPY_ONLY = {
-    "resume.tex", "_header.tex", "TLCresume.sty",
-    "sections/education.tex", "sections/certifications.tex",
-    "sections/hobbies.tex", "sections/por.tex",
+    "resume.tex", "_header.tex",
+    "sections/education.tex", "sections/certifications.tex", "sections/por.tex",
 }
 
 
@@ -59,11 +58,10 @@ RULES:
 - Do NOT invent skills, experience, or tools not already in the resume
 - Do NOT change company names, job titles, or dates
 - Keep all LaTeX commands intact
-- Escape special characters (e.g. & to \\&, % to \\%, $ to \\$) unless part of a command
 - Return ONLY the files that actually changed
 - Pick ONLY 3 projects based on the job description
 
-Respond with ONLY a JSON object: {{"sections/objective.tex": "...full content...", ...}}
+Respond with ONLY a JSON object: {{"sections/summary.tex": "...full content...", ...}}
 No markdown fences around the JSON."""
 
     original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
@@ -165,7 +163,7 @@ RULES:
 - Keep all LaTeX commands intact
 - Return ONLY the files that actually changed
 
-Respond with ONLY a JSON object: {{"sections/objective.tex": "...full content...", ...}}
+Respond with ONLY a JSON object: {{"sections/summary.tex": "...full content...", ...}}
 No markdown fences around the JSON."""
 
     original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
@@ -260,22 +258,32 @@ def build_prompt(jd, title, company, files):
 JOB: {title} at {company}
 
 JOB DESCRIPTION:
-{jd[:2500]}
+{jd[:1500]}
 
 RESUME FILES:
 {files_block}
 
+- The JSON object must be **valid** – all backslashes in LaTeX code must be **doubled**.
+  This ensures the JSON parser does not treat backslashes as escape sequences.
+
 RULES:
 - Reorder bullets to surface most relevant experience first
-- Rewrite objective.tex to speak directly to this role
+- Rewrite summary.tex to speak directly to this role, BUT DO NOT LIE ABOUT EXPERIENCES OR PREVIOUS WORK
 - Reorder skills.tex so most relevant skills appear first
 - Do NOT invent skills, experience, or tools
 - Do NOT change company names, job titles, or dates
 - Keep all LaTeX commands intact
-- Escape special characters (e.g. & to \&, % to \%, $ to \$) unless part of a command
+- Escape special characters (e.g. & to \&, % to \%, $ to \$) unless part of a command or rendering symbols
 - Return ONLY files that actually changed
 
-Respond with ONLY a JSON object: {{"sections/objective.tex": "...full content...", ...}}
+When selecting projects:
+1. Keep ALL formatting, links, and LaTeX commands intact
+2. Only remove entire 'resumeProjectHeading' blocks for projects NOT selected
+3. Maintain the exact structure including 'vspace' commands
+4. Keep the "\section" header and surrounding 'vspace' commands unchanged
+5. Output the complete projects.tex file with ONLY the selected projects
+
+Respond with ONLY a JSON object: {{"sections/summary.tex": "...full content...", ...}}
 No markdown fences around the JSON."""
 
 
@@ -327,7 +335,7 @@ CANDIDATE:
 JOB:
 Title: {title}
 Company: {company}
-Description: {jd[:1500]}
+Description: {jd[:1000]}
 
 Rules:
 - Score 0 if role requires physical presence (onsite/in-office)

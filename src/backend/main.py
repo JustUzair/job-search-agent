@@ -401,3 +401,32 @@ if FRONTEND_DIST.exists():
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
         return FileResponse(str(FRONTEND_DIST / "index.html"))
+
+
+@app.get("/api/resume/compile-test")
+def resume_compile_test():
+    """
+    Dry-run: copies the master resume into a temp dir and compiles it with latexmk.
+    No LLM involved. Use this to verify LaTeX packages and file mounts are correct.
+    """
+    import tempfile, shutil
+    files = tailor_mod.load_resume_files()
+    if not files:
+        raise HTTPException(status_code=500, detail=f"No resume files found at {tailor_mod.RESUME_DIR}")
+
+    with tempfile.TemporaryDirectory() as tmp:
+        os.makedirs(os.path.join(tmp, "sections"), exist_ok=True)
+        for rel_path, content in files.items():
+            out = os.path.join(tmp, rel_path)
+            os.makedirs(os.path.dirname(out), exist_ok=True)
+            with open(out, "w") as f:
+                f.write(content)
+
+        pdf_path, log = tailor_mod.compile_pdf(tmp)
+        if pdf_path:
+            return {"ok": True, "files_loaded": list(files.keys())}
+        return {
+            "ok": False,
+            "files_loaded": list(files.keys()),
+            "log": log[-3000:],   # last 3000 chars of latexmk output
+        }

@@ -1,66 +1,110 @@
-import { useState, useEffect, useCallback } from 'react'
-import { getJobs, setJobStatus, startScrape, getScrapeStatus, getBatches, pollBatches } from '../api.js'
-import TailorModal from './TailorModal.jsx'
-import JobDetailModal from './JobDetailModal.jsx'
+import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
+import {
+  getJobs,
+  setJobStatus,
+  startScrape,
+  getScrapeStatus,
+  getBatches,
+  pollBatches,
+} from "../api.js";
+import TailorModal from "./TailorModal.jsx";
+import JobDetailModal from "./JobDetailModal.jsx";
 
-const SCORE_DOT = (score) => {
-  if (score >= 75) return 'bg-emerald-500'
-  if (score >= 55) return 'bg-amber-400'
-  return 'bg-red-500'
-}
+const SCORE_DOT = score => {
+  if (score >= 75) return "bg-emerald-500";
+  if (score >= 55) return "bg-amber-400";
+  if (score > 0) return "bg-red-500";
+  return "bg-slate-600";
+};
 
-const SCORE_TEXT = (score) => {
-  if (score >= 75) return 'text-emerald-400'
-  if (score >= 55) return 'text-amber-400'
-  return 'text-red-400'
-}
+const SCORE_TEXT = score => {
+  if (score >= 75) return "text-emerald-400";
+  if (score >= 55) return "text-amber-400";
+  if (score > 0) return "text-red-400";
+  return "text-slate-500";
+};
 
 export function WorkTypeBadge({ type }) {
   const map = {
-    remote: 'bg-emerald-900 text-emerald-300',
-    hybrid: 'bg-amber-900 text-amber-300',
-    onsite: 'bg-slate-700 text-slate-300'
-  }
-  const cls = map[type] || map.onsite
+    remote: "bg-emerald-900 text-emerald-300",
+    hybrid: "bg-amber-900 text-amber-300",
+    onsite: "bg-slate-700 text-slate-300",
+  };
+  const cls = map[type] || map.onsite;
   return (
     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${cls}`}>
-      {type || 'unknown'}
+      {type || "unknown"}
     </span>
-  )
+  );
 }
 
 function JobCard({ job, onSkip, onTailor, onClick }) {
+  const isUnscored = job.score === 0 && job.status === "unscored";
   return (
     <div
       onClick={onClick}
-      className="bg-slate-800 rounded-lg p-4 border border-slate-700 hover:border-slate-600 transition-colors cursor-pointer"
+      className={`rounded-lg p-4 border transition-colors cursor-pointer ${
+        isUnscored
+          ? "bg-slate-800/50 border-slate-700/60 hover:border-slate-600/80 opacity-75"
+          : "bg-slate-800 border-slate-700 hover:border-slate-600"
+      }`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
-          <div className="flex-shrink-0 flex flex-col items-center gap-1">
-            <div className={`w-3 h-3 rounded-full ${SCORE_DOT(job.score)}`} />
-            <span className={`text-sm font-bold ${SCORE_TEXT(job.score)}`}>{job.score ?? '?'}</span>
+          <div className="flex-shrink-0 flex flex-col items-center gap-1 w-8">
+            {isUnscored ? (
+              <>
+                <div className="w-3 h-3 rounded-full bg-slate-600" />
+                <span className="text-xs text-slate-600">—</span>
+              </>
+            ) : (
+              <>
+                <div
+                  className={`w-3 h-3 rounded-full ${SCORE_DOT(job.score)}`}
+                />
+                <span className={`text-sm font-bold ${SCORE_TEXT(job.score)}`}>
+                  {job.score}
+                </span>
+              </>
+            )}
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-semibold text-white truncate">{job.title}</span>
+              <span className="font-semibold text-white truncate">
+                {job.title}
+              </span>
               <WorkTypeBadge type={job.work_type} />
+              {isUnscored && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-slate-700 text-slate-400">
+                  not scored
+                </span>
+              )}
             </div>
             <div className="text-slate-400 text-sm mt-0.5">
               {job.company}
               <span className="mx-2 text-slate-600">·</span>
               <span className="text-slate-500">{job.source}</span>
               <span className="mx-2 text-slate-600">·</span>
-              <span className="text-slate-500">{job.found_at ? new Date(job.found_at).toLocaleDateString() : ''}</span>
+              <span className="text-slate-500">
+                {job.found_at
+                  ? new Date(job.found_at).toLocaleDateString()
+                  : ""}
+              </span>
             </div>
-            {job.reason && (
-              <p className="text-slate-400 text-xs mt-1.5 line-clamp-2">{job.reason}</p>
+            {job.reason && !isUnscored && (
+              <p className="text-slate-400 text-xs mt-1.5 line-clamp-2">
+                {job.reason}
+              </p>
             )}
           </div>
         </div>
         <div className="flex gap-2 flex-shrink-0">
           <button
-            onClick={(e) => { e.stopPropagation(); onTailor(job); }}
+            onClick={e => {
+              e.stopPropagation();
+              onTailor(job);
+            }}
             className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-xs rounded font-medium transition-colors"
           >
             ⚡ Tailor
@@ -70,14 +114,17 @@ function JobCard({ job, onSkip, onTailor, onClick }) {
               href={job.url}
               target="_blank"
               rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+              onClick={e => e.stopPropagation()}
               className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-white text-xs rounded font-medium transition-colors"
             >
               ↗ Open
             </a>
           )}
           <button
-            onClick={(e) => { e.stopPropagation(); onSkip(job.id); }}
+            onClick={e => {
+              e.stopPropagation();
+              onSkip(job.id);
+            }}
             className="px-3 py-1.5 bg-slate-700 hover:bg-red-900 text-slate-300 hover:text-red-300 text-xs rounded font-medium transition-colors"
           >
             × Skip
@@ -85,124 +132,206 @@ function JobCard({ job, onSkip, onTailor, onClick }) {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
-const LIMIT = 20
+function PageJumper({ page, totalPages, onPageChange }) {
+  const [draft, setDraft] = useState(String(page + 1));
+
+  useEffect(() => {
+    setDraft(String(page + 1));
+  }, [page]);
+
+  const commit = () => {
+    const n = parseInt(draft, 10);
+    if (!isNaN(n) && n >= 1 && n <= totalPages) {
+      onPageChange(n - 1);
+    } else {
+      setDraft(String(page + 1));
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        onClick={() => onPageChange(Math.max(0, page - 1))}
+        disabled={page === 0}
+        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 rounded text-sm"
+      >
+        ← Prev
+      </button>
+      <div className="flex items-center gap-1.5 text-sm text-slate-400">
+        <span>Page</span>
+        <input
+          type="number"
+          min={1}
+          max={totalPages}
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={e => e.key === "Enter" && commit()}
+          className="w-14 text-center bg-slate-700 border border-slate-600 text-white rounded px-2 py-1 text-sm focus:outline-none focus:border-emerald-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+        />
+        <span>/ {totalPages}</span>
+      </div>
+      <button
+        onClick={() => onPageChange(Math.min(totalPages - 1, page + 1))}
+        disabled={page >= totalPages - 1}
+        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 rounded text-sm"
+      >
+        Next →
+      </button>
+    </div>
+  );
+}
+
+const LIMIT = 20;
 
 export default function QueueTab() {
-  const [jobs, setJobs] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
-  const [page, setPage] = useState(0)
-  const [total, setTotal] = useState(0)
-  const [scraping, setScraping] = useState(false)
-  const [scrapeStatus, setScrapeStatus] = useState(null)
-  const [tailorJob_, setTailorJob] = useState(null)
-  const [selectedJob, setSelectedJob] = useState(null)
-  const [pendingBatch, setPendingBatch] = useState(null)
+  const [searchParams, setSearchParams] = useSearchParams();
+  const page = Math.max(0, parseInt(searchParams.get("page") || "0", 10));
+
+  const setPage = n => {
+    setSearchParams(
+      prev => {
+        const next = new URLSearchParams(prev);
+        if (n === 0) next.delete("page");
+        else next.set("page", String(n));
+        return next;
+      },
+      { replace: true },
+    );
+  };
+
+  const [jobs, setJobs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [total, setTotal] = useState(0);
+  const [scraping, setScraping] = useState(false);
+  const [scrapeStatus, setScrapeStatus] = useState(null);
+  const [tailorJob_, setTailorJob] = useState(null);
+  const [selectedJob, setSelectedJob] = useState(null);
+  const [pendingBatch, setPendingBatch] = useState(null);
 
   const fetchJobs = useCallback(async () => {
     try {
-      setLoading(true)
-      setError(null)
-      const data = await getJobs('new', LIMIT, page * LIMIT)
-      setJobs(Array.isArray(data) ? data : data.jobs || [])
-      setTotal(data.total || (Array.isArray(data) ? data.length : 0))
+      setLoading(true);
+      setError(null);
+      // "new,unscored" — scored jobs (score>0) float to top via ORDER BY score DESC
+      const data = await getJobs("new,unscored", LIMIT, page * LIMIT);
+      setJobs(Array.isArray(data) ? data : data.jobs || []);
+      setTotal(data.total || (Array.isArray(data) ? data.length : 0));
     } catch (e) {
-      setError(e.message)
+      setError(e.message);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
-  }, [page])
+  }, [page]);
 
-  const fetchScrapeStatus = useCallback(async () => {
-    try {
-      const s = await getScrapeStatus()
-      setScrapeStatus(s)
-    } catch (_) {}
-  }, [])
-
-  useEffect(() => { fetchJobs() }, [fetchJobs])
-  useEffect(() => { fetchScrapeStatus() }, [fetchScrapeStatus])
-
-  // Poll pending batches every 30s and refresh jobs when done
   useEffect(() => {
-    let interval
+    fetchJobs();
+  }, [fetchJobs]);
+
+  useEffect(() => {
+    getScrapeStatus()
+      .then(setScrapeStatus)
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    let interval;
     const checkBatches = async () => {
       try {
-        const b = await getBatches()
+        const b = await getBatches();
         if (b.count > 0) {
-          setPendingBatch(b.pending[0])
-          await pollBatches()
+          setPendingBatch(b.pending[0]);
+          await pollBatches();
         } else {
-          if (pendingBatch) fetchJobs()  // batch just completed, refresh
-          setPendingBatch(null)
+          if (pendingBatch) fetchJobs();
+          setPendingBatch(null);
         }
       } catch (_) {}
-    }
-    checkBatches()
-    interval = setInterval(checkBatches, 30000)
-    return () => clearInterval(interval)
-  }, [pendingBatch?.batch_id])
+    };
+    checkBatches();
+    interval = setInterval(checkBatches, 30000);
+    return () => clearInterval(interval);
+  }, [pendingBatch?.batch_id]);
 
   const handleScrape = async () => {
-    setScraping(true)
+    setScraping(true);
     try {
-      await startScrape()
+      await startScrape();
       const poll = setInterval(async () => {
         try {
-          const s = await getScrapeStatus()
-          setScrapeStatus(s)
-          if (s.status !== 'running') {
-            clearInterval(poll)
-            setScraping(false)
-            setPage(0)
-            await fetchJobs()
+          const s = await getScrapeStatus();
+          setScrapeStatus(s);
+          if (!s.running) {
+            clearInterval(poll);
+            setScraping(false);
+            setPage(0);
+            await fetchJobs();
           }
         } catch (_) {
-          clearInterval(poll)
-          setScraping(false)
+          clearInterval(poll);
+          setScraping(false);
         }
-      }, 3000)
+      }, 3000);
     } catch (e) {
-      setError(e.message)
-      setScraping(false)
+      setError(e.message);
+      setScraping(false);
     }
-  }
+  };
 
-  const handleSkip = async (id) => {
+  const handleSkip = async id => {
     try {
-      await setJobStatus(id, 'skipped')
-      setJobs(prev => prev.filter(j => j.id !== id))
+      await setJobStatus(id, "skipped");
+      setJobs(prev => prev.filter(j => j.id !== id));
+      setTotal(t => t - 1);
     } catch (e) {
-      setError(e.message)
+      setError(e.message);
     }
-  }
+  };
 
-  const handleApply = async (id) => {
+  const handleApply = async id => {
     try {
-      await setJobStatus(id, 'applied')
-      setJobs(prev => prev.filter(j => j.id !== id))
-      setSelectedJob(null)
+      await setJobStatus(id, "applied");
+      setJobs(prev => prev.filter(j => j.id !== id));
+      setTotal(t => t - 1);
+      setSelectedJob(null);
     } catch (e) {
-      setError(e.message)
+      setError(e.message);
     }
-  }
+  };
 
-  const totalPages = Math.ceil(total / LIMIT)
+  const totalPages = Math.max(1, Math.ceil(total / LIMIT));
+  const scoredCount = jobs.filter(j => j.score > 0).length;
+  const unscoredCount = jobs.filter(j => j.score === 0).length;
 
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <div className="text-sm text-slate-400">
-          {scrapeStatus && (
-            <span>
-              Last run: {scrapeStatus.last_run ? new Date(scrapeStatus.last_run).toLocaleString() : 'never'}
-              {scrapeStatus.new_count != null && (
-                <span className="ml-3 text-emerald-400">+{scrapeStatus.new_count} new</span>
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-slate-400">
+            {scrapeStatus?.last_run && (
+              <span>
+                Last run: {new Date(scrapeStatus.last_run).toLocaleString()}
+              </span>
+            )}
+          </div>
+          {jobs.length > 0 && (
+            <div className="text-xs text-slate-500 flex gap-3">
+              {scoredCount > 0 && (
+                <span className="text-emerald-400/80">
+                  {scoredCount} scored
+                </span>
               )}
-            </span>
+              {unscoredCount > 0 && (
+                <span className="text-slate-500">
+                  {unscoredCount} not yet scored
+                </span>
+              )}
+              <span className="text-slate-600">{total} total</span>
+            </div>
           )}
         </div>
         <button
@@ -210,7 +339,7 @@ export default function QueueTab() {
           disabled={scraping}
           className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white text-sm rounded font-medium transition-colors"
         >
-          {scraping ? '⟳ Scraping...' : '⚡ Scrape Now'}
+          {scraping ? "⟳ Scraping..." : "⚡ Scrape Now"}
         </button>
       </div>
 
@@ -224,8 +353,10 @@ export default function QueueTab() {
         <div className="bg-amber-900/30 border border-amber-700 text-amber-300 px-4 py-3 rounded mb-4 text-sm flex items-center gap-2">
           <span className="animate-spin text-base">⟳</span>
           <span>
-            Scoring <strong>{pendingBatch.total_requests.toLocaleString()}</strong> jobs with AI
-            <span className="text-amber-400/60 ml-1">(batch mode — 50% cheaper, auto-refreshes)</span>
+            Scoring{" "}
+            <strong>{pendingBatch.total_requests?.toLocaleString()}</strong>{" "}
+            jobs
+            <span className="text-amber-400/60 ml-1">(auto-refreshes)</span>
           </span>
         </div>
       )}
@@ -234,43 +365,45 @@ export default function QueueTab() {
         <div className="text-center text-slate-500 py-12">Loading jobs...</div>
       ) : jobs.length === 0 ? (
         <div className="text-center text-slate-500 py-12">
-          No new jobs in queue. Hit "Scrape Now" to fetch more.
+          No jobs in queue. Hit "Scrape Now" to fetch more.
         </div>
       ) : (
         <div className="space-y-3">
           {jobs.map(job => (
-            <JobCard key={job.id} job={job} onSkip={handleSkip} onTailor={setTailorJob} onClick={() => setSelectedJob(job)} />
+            <JobCard
+              key={job.id}
+              job={job}
+              onSkip={handleSkip}
+              onTailor={setTailorJob}
+              onClick={() => setSelectedJob(job)}
+            />
           ))}
         </div>
       )}
 
       {totalPages > 1 && (
-        <div className="flex items-center gap-2 mt-4 justify-center">
-          <button
-            onClick={() => setPage(p => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 rounded text-sm"
-          >
-            ← Prev
-          </button>
-          <span className="text-slate-400 text-sm">Page {page + 1} / {totalPages}</span>
-          <button
-            onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
-            disabled={page >= totalPages - 1}
-            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-40 rounded text-sm"
-          >
-            Next →
-          </button>
+        <div className="mt-4 flex justify-center">
+          <PageJumper
+            page={page}
+            totalPages={totalPages}
+            onPageChange={setPage}
+          />
         </div>
       )}
 
       {tailorJob_ && (
         <TailorModal job={tailorJob_} onClose={() => setTailorJob(null)} />
       )}
-
       {selectedJob && (
-        <JobDetailModal job={selectedJob} onClose={() => { setSelectedJob(null); fetchJobs(); }} />
+        <JobDetailModal
+          job={selectedJob}
+          onClose={() => {
+            setSelectedJob(null);
+            fetchJobs();
+          }}
+          onApply={handleApply}
+        />
       )}
     </div>
-  )
+  );
 }

@@ -8,3 +8,7 @@ dump.rdb
 */__pycache__/
 *.py[cod]
 *$py.class
+
+*.zip
+
+/data/resumes

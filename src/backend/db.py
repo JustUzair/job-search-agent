@@ -197,10 +197,15 @@ def job_exists(job_id: str) -> bool:
 
 def list_jobs(status="new", limit=50, offset=0):
     conn = get_conn()
-    rows = conn.execute("""
-        SELECT id, title, company, url, score, reason, source, work_type, location, found_at
-        FROM jobs WHERE status = ? ORDER BY score DESC LIMIT ? OFFSET ?
-    """, (status, limit, offset)).fetchall()
+    # Support comma-separated statuses e.g. "new,unscored"
+    statuses = [s.strip() for s in status.split(",") if s.strip()]
+    placeholders = ",".join("?" * len(statuses))
+    rows = conn.execute(f"""
+        SELECT id, title, company, url, score, reason, source, work_type, location, found_at, status
+        FROM jobs WHERE status IN ({placeholders})
+        ORDER BY score DESC, found_at DESC
+        LIMIT ? OFFSET ?
+    """, (*statuses, limit, offset)).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -225,12 +230,13 @@ def list_all_jobs(limit=200, offset=0, source=None, status=None):
     return [dict(r) for r in rows]
 
 
-def count_jobs(status=None):
+def count_jobs(status="new"):
     conn = get_conn()
-    if status:
-        n = conn.execute("SELECT COUNT(*) FROM jobs WHERE status = ?", (status,)).fetchone()[0]
-    else:
-        n = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+    statuses = [s.strip() for s in status.split(",") if s.strip()]
+    placeholders = ",".join("?" * len(statuses))
+    n = conn.execute(
+        f"SELECT COUNT(*) FROM jobs WHERE status IN ({placeholders})", statuses
+    ).fetchone()[0]
     conn.close()
     return n
 
@@ -568,3 +574,12 @@ def update_job_score(job_id: str, score: int, reason: str, status: str = "new"):
     )
     conn.commit()
     conn.close()
+
+def get_unscored_job_ids() -> set:
+    """Return IDs of jobs saved but not yet scored (status='unscored')."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id FROM jobs WHERE status = 'unscored'"
+    ).fetchall()
+    conn.close()
+    return {row[0] for row in rows}

@@ -652,61 +652,97 @@ def run_scrape(sources=None):
     threshold = cfg.get("score_threshold", 60)
     now = _now_ist()
 
-    # ── Step 3: Save ALL new jobs to DB immediately so the frontend shows them ──
-    # Jobs start as status='new' with score=0; scoring updates them in-place.
+    # ── Save ALL new jobs immediately with status='unscored' ──────────────────
+    # 'unscored' is the resume marker — on next run these get picked up again.
     for job in new_jobs:
-        job.update(score=0, reason="pending scoring", found_at=now, status="new")
-        db.save_job(job)
+        db.save_job({**job, "score": 0, "reason": "not yet scored",
+                     "found_at": now, "status": "unscored"})
 
-    # ── Step 4: Score a capped batch (ollama is slow — don't block forever) ──
+    # ── Also grab any jobs from previous runs that never got scored ───────────
+    unscored_ids = db.get_unscored_job_ids()
+    # Merge: new_jobs already in list, add previously-unscored ones from DB
+    already_unscored = [j for j in filtered if j["id"] in unscored_ids
+                        and j not in new_jobs]
+    to_score_pool = new_jobs + already_unscored
+
+    # ── Cap scoring per run (ollama is slow) ─────────────────────────────────
     MAX_SCORE_PER_RUN = int(os.environ.get("MAX_SCORE_PER_RUN", "200"))
-    to_score = new_jobs[:MAX_SCORE_PER_RUN]
-    skipped_scoring = len(new_jobs) - len(to_score)
-    if skipped_scoring:
-        print(f"[scrape] capping scoring at {MAX_SCORE_PER_RUN} — {skipped_scoring} jobs saved unscored, will score on next run")
+    to_score = to_score_pool[:MAX_SCORE_PER_RUN]
+    skipped = len(to_score_pool) - len(to_score)
+    if skipped:
+        print(f"[scrape] {skipped} jobs deferred to next run (cap={MAX_SCORE_PER_RUN})")
 
-    batch_info = None
     surfaced = []
+    batch_info = None
 
     if to_score:
         if llm.PROVIDER == "ollama":
-            # Ollama: score synchronously, update each job as it finishes
-            print(f"[scrape] ollama sync scoring {len(to_score)} jobs...")
+            scored_pass = 0
+            scored_fail = 0
+            sep = "─" * 72
+            print(f"\n{sep}")
+            print(f"  scoring {len(to_score)} jobs  (threshold ≥ {threshold})")
+            print(sep)
+
             for i, job in enumerate(to_score, 1):
+                title   = (job.get("title")   or "?")[:42]
+                company = (job.get("company")  or "?")[:22]
+                wtype   = (job.get("work_type") or "")[:8]
+
                 score, reason = score_job(job)
                 status = "new" if score >= threshold else "filtered"
-                job.update(score=score, reason=reason, status=status)
-                db.save_job(job)
+                db.update_job_score(job["id"], score, reason, status)
+
+                icon  = "✓" if score >= threshold else "✗"
+                s_col = (
+                    "\033[32m" if score >= 75 else   # green
+                    "\033[33m" if score >= 55 else   # yellow
+                    "\033[31m" if score >  0  else   # red
+                    "\033[90m"                       # grey (unscored/0)
+                )
+                reset = "\033[0m"
+
+                print(
+                    f"  [{i:>3}/{len(to_score)}]  "
+                    f"{s_col}{icon} {score:>3}{reset}  "
+                    f"{title:<42}  @{company:<22}  {wtype}"
+                )
+                print(f"           └─ {reason}")
+
                 if score >= threshold:
-                    surfaced.append(job)
-                if i % 20 == 0:
-                    print(f"[scrape] scored {i}/{len(to_score)}...")
+                    scored_pass += 1
+                    surfaced.append({**job, "score": score, "reason": reason})
+                else:
+                    scored_fail += 1
+
+            print(sep)
+            print(
+                f"  done — \033[32m{scored_pass} passed\033[0m  "
+                f"\033[90m{scored_fail} filtered\033[0m  "
+                f"threshold={threshold}\n"
+            )
         else:
-            # Cloud providers: use async batch scoring (cheaper + non-blocking)
             batch_info = _submit_batch_scoring(to_score, now)
-            if batch_info:
-                print(f"[scrape] batch submitted, scores arrive async (check /api/batches)")
-            else:
-                # Fallback: sync scoring
+            if not batch_info:
                 for job in to_score:
                     score, reason = score_job(job)
-                    job.update(score=score, reason=reason, found_at=now, status="new")
-                    db.save_job(job)
+                    db.update_job_score(job["id"], score, reason,
+                                        "new" if score >= threshold else "filtered")
                     if score >= threshold:
                         surfaced.append(job)
 
-    # Save rejected jobs so they appear in "All Results" with reason
+    # ── Save rejected (failed filter) jobs ───────────────────────────────────
     for job in raw:
         if job not in filtered and not db.job_exists(job["id"]):
-            if not passes_title_filter(job.get("title", ""), skip_titles):
-                reason = "title filter (non-relevant role)"
-            else:
-                reason = "filtered out (work type / location / keywords)"
-            job.update(score=0, reason=reason, found_at=now, status="filtered")
-            db.save_job(job)
+            reason = ("title filter (non-relevant role)"
+                      if not passes_title_filter(job.get("title", ""), skip_titles)
+                      else "filtered out (work type / location / keywords)")
+            db.save_job({**job, "score": 0, "reason": reason,
+                         "found_at": now, "status": "filtered"})
 
     surfaced.sort(key=lambda x: x.get("score", 0), reverse=True)
-    result = {"total": len(raw), "filtered": len(filtered), "new": len(new_jobs),
+    result = {"total": len(raw), "filtered": len(filtered),
+              "new": len(new_jobs), "unscored_resumed": len(already_unscored),
               "surfaced": surfaced, "threshold": threshold}
     if batch_info:
         result["batch"] = batch_info
