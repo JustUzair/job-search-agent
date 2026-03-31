@@ -23,7 +23,7 @@ def chat(prompt: str, max_tokens: int = 200, temperature: float = 0.2) -> str:
     if PROVIDER == "anthropic":
         return _anthropic(prompt, max_tokens, temperature)
     if PROVIDER == "ollama":
-        return _ollama(prompt)
+        return _ollama(prompt, max_tokens)
     return _openai(prompt, max_tokens, temperature)
 
 
@@ -50,18 +50,16 @@ def _anthropic(prompt, max_tokens, temperature):
     )
     return msg.content[0].text.strip()
 
-def _ollama(prompt):
+def _ollama(prompt, max_tokens: int = 200):
     """Call a locally-running Ollama instance via its OpenAI-compatible endpoint."""
     from ollama import Client
-    from ollama import chat
-    client = Client(
-        host=OLLAMA_BASE_URL
-    )
+    client = Client(host=OLLAMA_BASE_URL)
     resp = client.chat(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
         think=False,
         stream=False,
+        options={"num_predict": max_tokens},
     )
     return resp.message.content
 
@@ -102,43 +100,40 @@ def create_scoring_batch(jobs: list, candidate_profile: str) -> str | None:
 
 def _create_ollama_batch(jobs, candidate_profile):
     """
-    Simulates a batch API for Ollama by running concurrent requests.
-    Returns a special string 'ollama_local_sync' plus the results JSON.
+    Runs concurrent scoring requests against a local Ollama instance.
+    Worker count is controlled by OLLAMA_BATCH_WORKERS (default 4).
+    Returns a special 'LOCAL_BATCH_DONE:...' string so poll_batch() resolves it instantly.
     """
     import concurrent.futures
-    import json
-    import re
 
+    max_workers = int(os.environ.get("OLLAMA_BATCH_WORKERS", "4"))
     results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
-        future_to_job = {}
-        for job in jobs:
-            prompt = _build_score_prompt(job, candidate_profile)
-            future = executor.submit(_ollama, prompt)  # only one argument
-            future_to_job[future] = job
 
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_job = {
+            executor.submit(_ollama, _build_score_prompt(job, candidate_profile), 80): job
+            for job in jobs
+        }
         for future in concurrent.futures.as_completed(future_to_job):
             job = future_to_job[future]
             custom_id = job.get("id")
             try:
                 raw_text = future.result()
-                # Clean JSON
                 raw_text = re.sub(r"^```[a-z]*\n?", "", raw_text)
                 raw_text = re.sub(r"\n?```$", "", raw_text).strip()
                 data = json.loads(raw_text)
                 results.append({
                     "custom_id": custom_id,
                     "score": int(data.get("score", 0)),
-                    "reason": str(data.get("reason", ""))[:120]
+                    "reason": str(data.get("reason", ""))[:120],
                 })
             except Exception as e:
                 results.append({
                     "custom_id": custom_id,
                     "score": 0,
-                    "reason": f"Ollama error: {str(e)}"
+                    "reason": f"Ollama error: {str(e)[:80]}",
                 })
 
-    # Return a marker that the batch is done and include the results
     return f"LOCAL_BATCH_DONE:{json.dumps(results)}"
     
 

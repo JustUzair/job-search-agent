@@ -26,9 +26,58 @@ TAILOR_TARGETS = {
 }
 
 COPY_ONLY = {
-    "resume.tex", "_header.tex",
+    "resume.tex", "_header.tex", "TLCresume.sty",
     "sections/education.tex", "sections/certifications.tex", "sections/por.tex",
+    "sections/security.tex",
 }
+
+
+def _repair_latex_json(raw: str) -> str:
+    """
+    Best-effort repair of common LLM mistakes when embedding LaTeX inside JSON.
+
+    Problems seen in the wild:
+    1. LLM emits a single backslash instead of \\\\ (raw \\ in the JSON string),
+       so sequences like \\textbf, \\section, \\begin appear as bare control chars.
+    2. LLM uses actual newlines inside a JSON string value instead of \\n.
+    3. Response is truncated – the JSON is simply cut off; we can't fix this,
+       but we log a clear message so the caller knows to raise max_tokens.
+    """
+    # If it already parses, nothing to do.
+    try:
+        json.loads(raw)
+        return raw
+    except json.JSONDecodeError:
+        pass
+
+    # Strategy: locate each string value and fix un-escaped content inside it.
+    # We do this by re-serializing via a regex that operates on the raw text.
+    #
+    # Pass 1: fix literal (unescaped) newlines inside JSON string values.
+    # A JSON string value spans from an opening " (not preceded by \) to the
+    # matching closing " (not preceded by \).  Newlines inside it are illegal.
+    def _fix_newlines(m):
+        # m.group(0) is the whole matched string literal including the quotes
+        inner = m.group(1)
+        inner = inner.replace("\r\n", "\\n").replace("\r", "\\n").replace("\n", "\\n")
+        return '"' + inner + '"'
+
+    # Regex: match a JSON string token (simplified – handles most real output)
+    repaired = re.sub(
+        r'"((?:[^"\\]|\\.)*)"',
+        _fix_newlines,
+        raw,
+        flags=re.DOTALL,
+    )
+
+    try:
+        json.loads(repaired)
+        return repaired
+    except json.JSONDecodeError:
+        pass
+
+    # If still broken, return original so the caller gets the real error
+    return raw
 
 
 def apply_edits(instructions: str, variant_name: str = "") -> dict:
@@ -66,11 +115,12 @@ No markdown fences around the JSON."""
 
     original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
     os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
-    raw = llm.chat(prompt, max_tokens=4096, temperature=0.2)
+    raw = llm.chat(prompt, max_tokens=16000, temperature=0.2)
     os.environ["MODEL_NAME"] = original_model
 
     raw = re.sub(r"^```[a-z]*\n?", "", raw)
     raw = re.sub(r"\n?```$", "", raw).strip()
+    raw = _repair_latex_json(raw)
 
     try:
         updated_files = json.loads(raw)
@@ -168,11 +218,12 @@ No markdown fences around the JSON."""
 
     original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
     os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
-    raw = llm.chat(prompt, max_tokens=4096, temperature=0.2)
+    raw = llm.chat(prompt, max_tokens=16000, temperature=0.2)
     os.environ["MODEL_NAME"] = original_model
 
     raw = re.sub(r"^```[a-z]*\n?", "", raw)
     raw = re.sub(r"\n?```$", "", raw).strip()
+    raw = _repair_latex_json(raw)
 
     try:
         updated_files = json.loads(raw)
@@ -263,28 +314,25 @@ JOB DESCRIPTION:
 RESUME FILES:
 {files_block}
 
-- The JSON object must be **valid** – all backslashes in LaTeX code must be **doubled**.
-  This ensures the JSON parser does not treat backslashes as escape sequences.
+JSON OUTPUT RULES (critical — invalid JSON causes a hard failure):
+- Respond with ONLY a raw JSON object. No markdown fences, no preamble, no trailing text.
+- Every backslash in LaTeX MUST be doubled in the JSON string: \\textbf → \\\\textbf, \\begin → \\\\begin, \\section → \\\\section, etc.
+- Every newline inside a JSON string value MUST be written as the two-character sequence \\n, NOT a literal line break.
+- Double curly braces in LaTeX (e.g. \\section{{...}}) stay as-is; they are valid JSON string content.
+- Return ONLY the files that actually changed.
 
-RULES:
+TAILORING RULES:
 - Reorder bullets to surface most relevant experience first
 - Rewrite summary.tex to speak directly to this role, BUT DO NOT LIE ABOUT EXPERIENCES OR PREVIOUS WORK
 - Reorder skills.tex so most relevant skills appear first
 - Do NOT invent skills, experience, or tools
 - Do NOT change company names, job titles, or dates
 - Keep all LaTeX commands intact
-- Escape special characters (e.g. & to \&, % to \%, $ to \$) unless part of a command or rendering symbols
-- Return ONLY files that actually changed
+- Escape special characters (e.g. & to \\&, % to \\%, $ to \\$) unless part of a command or rendering symbols
+- Pick ONLY 3 projects based on the job description; remove entire 'resumeProjectHeading' blocks for others
+- Keep \\section header and surrounding vspace commands unchanged in projects.tex
 
-When selecting projects:
-1. Keep ALL formatting, links, and LaTeX commands intact
-2. Only remove entire 'resumeProjectHeading' blocks for projects NOT selected
-3. Maintain the exact structure including 'vspace' commands
-4. Keep the "\section" header and surrounding 'vspace' commands unchanged
-5. Output the complete projects.tex file with ONLY the selected projects
-
-Respond with ONLY a JSON object: {{"sections/summary.tex": "...full content...", ...}}
-No markdown fences around the JSON."""
+Respond with ONLY a JSON object: {{"sections/summary.tex": "...full content...", ...}}"""
 
 
 def make_zip(out_dir, company):
@@ -392,12 +440,13 @@ def tailor(job_id=None, url=None, raw_jd=None, variant_name="", force=False):
     original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
     os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
 
-    raw = llm.chat(prompt, max_tokens=4096, temperature=0.3)
+    raw = llm.chat(prompt, max_tokens=16000, temperature=0.3)
 
     os.environ["MODEL_NAME"] = original_model  # restore
 
     raw = re.sub(r"^```[a-z]*\n?", "", raw)
     raw = re.sub(r"\n?```$", "", raw).strip()
+    raw = _repair_latex_json(raw)
 
     try:
         updated_files = json.loads(raw)

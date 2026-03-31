@@ -1,75 +1,39 @@
-\section{{\color{MidnightBlue}{Projects}}}
-\vspace{-10pt}
-\resumeSubHeadingListStart
+\documentclass[letter,10pt]{article}
+\usepackage{TLCresume}
+\begin{document}
 
-% --- PRIORITY 1: AI/RAG Projects (For AI/ML Engineer roles) ---
-% --- Tessera RAG Platform ---
-\resumeProjectHeading
-{\textbf{Tessera} $|$ {\color{blue}\href[pdfnewwindow=true]{https://tessera-rag-ai.vercel.app}{\underline{Live Demo}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://github.com/JustUzair/Tessera-RAG-AI}{\underline{Github}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://documenter.getpostman.com/view/20867739/2sBXihrYt8}{\underline{API Docs}}}}
-\vspace{-5pt}
-\resumeItemListStart
-\resumeItem{\textit{\textbf{Next.js 16}, \textbf{Express}, \textbf{MongoDB Atlas}, \textbf{LangChain}, \textbf{Vector Search}, \textbf{Zod}, \textbf{Framer Motion}, \textbf{Spline}}}
-\resumeItem{Built a \textbf{production RAG platform} where users upload documents, ask questions, and receive \textbf{citation-backed answers with zero hallucination}. Every response includes clickable source chunks proving where the answer originated.}
-\resumeItem{Architected \textbf{constraint-based agent design}: LangChain agent forbidden from answering until invoking \texttt{kb\_search} tool. \textbf{Structured JSON via Zod} prevents model responses from violating schema. Eliminates hallucination at the system level, not prompt engineering.}
-\resumeItem{Engineered \textbf{semantic embedding cache} via CacheBackedEmbeddings to MongoDB KV store: document re-upload drops from \textbf{2.31s to 421ms} (82\% reduction). Namespace-based deduplication eliminates wasted embedding API calls.}
-\resumeItem{Frontend: 3D Spline hero, Framer Motion animations, drag-and-drop KB panel, conversation threading, paginated history, full dark mode. \textbf{Lighthouse: Performance 92, Accessibility 96, Best Practices 100, SEO 100}.}
-\resumeItem{Deployed on Vercel with Postman API docs and Vitest test suite validating ingestion, querying, schema enforcement, and citation integrity.}
-\resumeItemListEnd
+\subsection{{\href{https://tessera-rag-ai.vercel.app}{Tessera} \hfill 2025}}
+\begin{zitemize}
+  \item Production RAG platform where users upload documents and receive \textbf{citation-backed answers with zero hallucination} via constraint-based LangChain agent design forbidden from answering without invoking the \texttt{kb\_search} tool.
+  \item Engineered \textbf{semantic embedding cache} via CacheBackedEmbeddings to MongoDB KV store: re-upload time drops from \textbf{2.31s to 421ms} (82\% reduction) with namespace-based deduplication.
+  \item \textbf{Lighthouse scores}: Performance 92, Accessibility 96, Best Practices 100, SEO 100.
+  \item \textbf{Tech}: Next.js 16, Express, MongoDB Atlas, LangChain, Vector Search, Zod, Framer Motion, Spline
+\end{zitemize}
 
-\vspace{-10pt}
+\subsection{{\href{https://axiom-ai-justuzair.vercel.app}{AXIOM} \hfill 2025}}
+\begin{zitemize}
+  \item Dual-mode AI search engine with a deterministic router using \textbf{30+ regex patterns} across 8 intent categories to eliminate unnecessary LLM calls.
+  \item Web pipeline scrapes and summarizes the top 5 results in parallel; KB pipeline uses \textbf{LightRAG} with 200-char overlap chunking, returning confidence-scored answers with full source citations.
+  \item \textbf{Tech}: TypeScript, Next.js, Express, LangChain LCEL, LightRAG, Tavily, Vercel Serverless Functions
+\end{zitemize}
 
-% --- AXIOM ---
-\resumeProjectHeading
-{\textbf{AXIOM} $|$ {\color{blue}\href[pdfnewwindow=true]{https://axiom-ai-justuzair.vercel.app}{\underline{Live Demo}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://axiom-lcel-backend-justuzair.vercel.app}{\underline{Backend}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://documenter.getpostman.com/view/20867739/2sBXcLgHZF}{\underline{API Docs}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://github.com/JustUzair/axiom-lcel-rag}{\underline{Github}}}}
-\vspace{-5pt}
-\resumeItemListStart
-\resumeItem{\textit{\textbf{TypeScript}, \textbf{Next.js}, \textbf{Express}, \textbf{LangChain LCEL}, \textbf{LightRAG}, \textbf{Tavily}, \textbf{Spline}, \textbf{Vercel Serverless Functions}}}
-\resumeItem{Engineered a dual-mode AI search engine with a deterministic router using \textbf{30+ regex patterns} across 8 intent categories (pricing, recency, comparisons, URLs, reviews, etc.) to eliminate unnecessary LLM calls.}
-\resumeItem{Web pipeline scrapes and summarizes the \textbf{top 5 results} in parallel, with graceful snippet fallback; KB pipeline chunks documents with a \textbf{200-char overlap window}, embedded as \textbf{Light-RAG}, and returns confidence-scored answers with full source citations.}
-\resumeItem{Covered both pipelines with a \textbf{Vitest} integration test suite validating ingestion, querying, \textbf{Zod} schema enforcement (400s on bad input), and citation integrity; deployed rate-limited \textbf{Express} backend on \textbf{Vercel Serverless}.}
-\resumeItem{Built a polished \textbf{Next.js} frontend featuring a \textbf{Spline 3D} hero, mouse-tracked spotlight, ambient orb backgrounds, per-word answer streaming reveals, and scramble-on-mount text animations via \textbf{Framer Motion}.}
-\resumeItemListEnd
+\subsection{{\href{https://github.com/JustUzair/NFT-Generator}{Mintrrs} \hfill 2024}}
+\begin{zitemize}
+  \item Factory Pattern smart contract system deploying isolated \textbf{ERC1155} collection contracts per artist with \textbf{OpenZeppelin} Pausable, Supply, and Ownable extensions; tested end-to-end with \textbf{Foundry}.
+  \item Dual-payment minting accepting \textbf{native ETH} or \textbf{ERC20 (USDC)}; automated IPFS pipeline via Pinata pins images and metadata as a directory with collection URI written on-chain post-deploy.
+  \item \textbf{Tech}: Next.js, TypeScript, Solidity, Foundry, Wagmi, Viem, IPFS, MongoDB
+\end{zitemize}
 
-\vspace{-10pt}
+\subsection{{\href{https://pumpkin-protocol-fantom.vercel.app/}{Pumpkin Index Protocol} --- Winner Fantom Q1 2023 Hackathon \hfill 2023}}
+\begin{zitemize}
+  \item DeFi protocol for creating and managing crypto indexes on Fantom Blockchain with index creation, management, issuance, and redemption at 0--1\% token fee per year.
+  \item \textbf{Tech}: Solidity, Hardhat, Next.js, TypeScript, Shadcn-ui, Framer Motion
+\end{zitemize}
 
-% --- PRIORITY 2: Web3 Projects (For Web3 Developer/Blockchain roles) ---
-% --- Mintrrs ---
-\resumeProjectHeading
-{\textbf{Mintrrs} $|$ {\color{blue}\href[pdfnewwindow=true]{https://github.com/JustUzair/NFT-Generator}{\underline{Github}}} $|$ {\color{blue}\href[pdfnewwindow=true]{https://www.postman.com/justuzair/workspace/justuzair-ughsal-nft-gen-nextjs}{\underline{API Docs}}}}
-\vspace{-5pt}
-\resumeItemListStart
-\resumeItem{\textit{\textbf{Next.js}, \textbf{TypeScript}, \textbf{Tailwind}, \textbf{Solidity}, \textbf{Foundry}, \textbf{Wagmi}, \textbf{Viem}, \textbf{IPFS}, \textbf{MongoDB}}}
-\resumeItem{Designed and deployed a \textbf{Factory Pattern} smart contract system, \texttt{NFTCollectionFactory} deploys isolated \textbf{ERC1155} collection contracts per artist, with \textbf{OpenZeppelin} Pausable, Supply, and Ownable extensions; tested end-to-end with a \textbf{Foundry} test suite and Forge deploy scripts.}
-\resumeItem{Implemented dual-payment minting in Solidity accepting \textbf{native ETH} or \textbf{ERC20 (USDC)} via \texttt{transferFrom}, with per-address holder dedup via nested mappings, \textbf{batch minting}, and an \textbf{owner revenue withdrawal} function.}
-\resumeItem{Serverless \textbf{Next.js} API routes handle SVG layer combination, \textbf{hash-map-based} duplicate prevention, and algorithmic generation; automated \textbf{IPFS} pipeline via \textbf{Pinata} pins images and metadata as a directory with the collection URI written on-chain post-deploy.}
-\resumeItemListEnd
+\subsection{{\href{https://thetafans.vercel.app/}{ThetaFans} --- Winner ThetaChain 2023 Hackathon \hfill 2023}}
+\begin{zitemize}
+  \item Decentralized creator platform eliminating costly intermediaries via \textbf{multi-tier subscriptions}, \textbf{NFT-gated video network}, and on-chain \textbf{proof-of-subscription}.
+  \item \textbf{Tech}: Solidity, Hardhat, Next.js, Theta Blockchain, Theta Video API
+\end{zitemize}
 
-\vspace{-10pt}
-
-% --- Pumpkin Index Protocol ---
-\resumeProjectHeading
-{\textbf{Pumpkin Index Protocol} $|$ {\color{blue}\href[pdfnewwindow=true]{https://pumpkin-protocol-fantom.vercel.app/}{\underline{Live Demo}}} $|$ \color{blue}\href[pdfnewwindow=true]{https://github.com/gas-limit/Pumpkin-Protocol}{\underline{Github}} $|$ \color{blue}\href[pdfnewwindow=true]{https://www.youtube.com/watch?v=nN7s1vPfmbE}{\underline{Video Demo}}}
-\vspace{-5pt}
-\resumeItemListStart
-\resumeItem{{\color{black}\href[pdfnewwindow=true]{https://devpost.com/software/pumpkin-protocol}{\underline{Winner of Fantom Blockchain Q1 2023 Hackathon}} on Devpost}}
-\resumeItem{Key Technologies: \textbf{Solidity}, \textbf{Hardhat}, \textbf{NextJS}, \textbf{TypeScript}, \textbf{Shadcn-ui}, \textbf{Framer-motion}}
-\resumeItem{Developed a \textbf{DeFi protocol} for creating and managing crypto indexes on \textbf{Fantom Blockchain}}
-\resumeItem{Implemented features for index creation, management, issuance, and redemption with 0-1\% token fee per year}
-\resumeItemListEnd
-
-\vspace{-10pt}
-
-% --- ThetaFans ---
-\resumeProjectHeading
-{\textbf{ThetaFans} $|$ {\color{blue}\href[pdfnewwindow=true]{https://thetafans.vercel.app/}{\underline{Live Demo}}} $|$ \color{blue}\href[pdfnewwindow=true]{https://github.com/JustUzair/ThetaFans}{\underline{Github}} $|$ \color{blue}\href[pdfnewwindow=true]{https://devpost.com/software/ThetaFans}{\underline{Hackathon}} $|$ \color{blue}\href[pdfnewwindow=true]{https://www.youtube.com/watch?v=_Mf77tPGrNo}{\underline{Video Demo}}}
-\vspace{-5pt}
-\resumeItemListStart
-\resumeItem{{\color{black}\href[pdfnewwindow=true]{https://devpost.com/software/thetafans}{\underline{Winner of ThetaChain Blockchain 2023 Hackathon}} on Devpost}}
-\resumeItem{Key Technologies: \textbf{Solidity}, \textbf{Hardhat}, \textbf{NextJS}, \textbf{Theta Blockchain}, \textbf{Theta Video API}}
-\resumeItem{Eliminated costly intermediaries by utilizing the decentralized network of video providers}
-\resumeItem{Utilized \textbf{Theta Video API} for efficient video streaming through decentralized network}
-\resumeItem{Implemented monetization features like \textbf{multi-tier subscriptions}, \textbf{NFT-gated video network}, and on-chain \textbf{proof-of-subscription}}
-\resumeItemListEnd
-
-\resumeSubHeadingListEnd
-\vspace{-20pt}
+\end{document}

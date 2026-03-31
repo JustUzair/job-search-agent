@@ -676,60 +676,29 @@ def run_scrape(sources=None):
     batch_info = None
 
     if to_score:
-        if llm.PROVIDER == "ollama":
-            scored_pass = 0
-            scored_fail = 0
-            sep = "─" * 72
-            print(f"\n{sep}")
-            print(f"  scoring {len(to_score)} jobs  (threshold ≥ {threshold})")
-            print(sep)
+        batch_info = _submit_batch_scoring(to_score, now)
 
-            for i, job in enumerate(to_score, 1):
-                title   = (job.get("title")   or "?")[:42]
-                company = (job.get("company")  or "?")[:22]
-                wtype   = (job.get("work_type") or "")[:8]
-
+        if not batch_info:
+            # Provider returned None — no batch support, score synchronously
+            for job in to_score:
                 score, reason = score_job(job)
                 status = "new" if score >= threshold else "filtered"
                 db.update_job_score(job["id"], score, reason, status)
-
-                icon  = "✓" if score >= threshold else "✗"
-                s_col = (
-                    "\033[32m" if score >= 75 else   # green
-                    "\033[33m" if score >= 55 else   # yellow
-                    "\033[31m" if score >  0  else   # red
-                    "\033[90m"                       # grey (unscored/0)
-                )
-                reset = "\033[0m"
-
-                print(
-                    f"  [{i:>3}/{len(to_score)}]  "
-                    f"{s_col}{icon} {score:>3}{reset}  "
-                    f"{title:<42}  @{company:<22}  {wtype}"
-                )
-                print(f"           └─ {reason}")
-
                 if score >= threshold:
-                    scored_pass += 1
                     surfaced.append({**job, "score": score, "reason": reason})
-                else:
-                    scored_fail += 1
-
-            print(sep)
-            print(
-                f"  done — \033[32m{scored_pass} passed\033[0m  "
-                f"\033[90m{scored_fail} filtered\033[0m  "
-                f"threshold={threshold}\n"
-            )
         else:
-            batch_info = _submit_batch_scoring(to_score, now)
-            if not batch_info:
+            # Ollama batch is synchronous — it blocks until all workers finish,
+            # so we can poll immediately and have real scores right away.
+            # OpenAI / Anthropic batches are async — scores arrive later via scheduler.
+            if llm.PROVIDER == "ollama":
+                poll_pending_batches()
+                # Re-read scored jobs from DB so surfaced reflects actual scores
                 for job in to_score:
-                    score, reason = score_job(job)
-                    db.update_job_score(job["id"], score, reason,
-                                        "new" if score >= threshold else "filtered")
-                    if score >= threshold:
-                        surfaced.append(job)
+                    row = db.get_job(job["id"])
+                    if row and row.get("score", 0) >= threshold:
+                        surfaced.append(row)
+            # For async providers, surfaced stays empty — the frontend will show
+            # jobs once the scheduler polls and scores them.
 
     # ── Save rejected (failed filter) jobs ───────────────────────────────────
     for job in raw:

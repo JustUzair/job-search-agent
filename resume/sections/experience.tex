@@ -1,38 +1,45 @@
-\section{{\color{MidnightBlue}{Experience}}}
-\resumeSubHeadingListStart
-\vspace{5pt}
+\documentclass[letter,10pt]{article}
+\usepackage{TLCresume}
+\begin{document}
 
-\resumeSubheading{BuildBear Labs $|$ Web3 Solutions Engineer}{Jan 2025 -- Nov 2025}{Remote, Singapore}{}
-\resumeItemListStart
-\vspace{1pt}
-\resumeItem{Created end-to-end \textbf{Web3 CI/CD test flows} with BuildBear, showcasing integrations and testing with complex protocols like \href{https://github.com/JustUzair/bb-ci-cd-v4-core}{\underline{\color{internal_link}\textbf{Uniswap V4}}} and \textbf{Uniswap V3}, covering setup \& whitelisting, automated deployment, testing, etc, with GitHub Actions.}
-\resumeItem{Performed black-box testing of pre-release features, identifying edge-case failures and providing technical feedback to engineering teams across product, frontend, backend, and infrastructure.}
-\vspace{1pt}
-\resumeItem{Spearheaded onboarding for protocol teams by architecting testing solutions for \textbf{Across} and \textbf{LI.FI} bridge logic, bypassing the lack of viable testnet environments; this strategic unblocking of partner dev-cycles drove immediate adoption, yielding \textbf{50+ plugin access requests each} within 30 days of launch.}
-\resumeItem{Individually researched, built, and documented real-world use cases; \textbf{Uniswap V3 swaps using Pimlico's Paymasters and Bundler}; created videos, written tutorials \& documentation, demonstrating how these flows work with BuildBear's \textbf{Sandbox environments} and their plugins.}
-\resumeItem{Researched and created a wide range of BuildBear tutorials, including multiple in-depth \textbf{video walkthroughs}, for plugins like: \href{https://www.buildbear.io/docs/tutorials/across-plugin-tutorial\#step-by-step-video-tutorial}{\underline{\color{internal_link}\textbf{Across}}}, \href{https://www.buildbear.io/docs/tutorials/lifi-plugin-tutorial\#step-by-step-video-tutorial}{\underline{\color{internal_link}\textbf{LI.FI}}}, \href{https://www.buildbear.io/docs/tutorials/pimlico-paymaster\#step-by-step-video-tutorial}{\underline{\color{internal_link}\textbf{Pimlico}}}, and many more.}
-\resumeItemListEnd
+\subsection{{AI \& Web3 Developer (Contract) \hfill NOV 2025 --- JAN 2026}}
+\subtext{DeFi Protocol (NDA) \hfill Remote, USA}
+\begin{zitemize}
+  \item Co-engineered an \textbf{EIP-7540 async vault} in \textbf{Solidity} deployed on \textbf{Arbitrum}, enabling permissioned execution for both human and AI agents via the \textbf{MetaMask Delegation Toolkit}; designed the core liquidity tracking model for deployed and undeployed vault positions adopted in the final implementation.
+  \item Authored a \textbf{custom GMX \texttt{createOrder} calldata generation script} to bypass a buggy internal on-chain-actions product, combining raw calldata construction with the \textbf{GMX SDK} and \textbf{MetaMask delegation signatures} to enable permissioned vault trade execution.
+  \item Built a \textbf{GMX x Allora AI trading agent} in \textbf{TypeScript} and \textbf{LangGraph} as a standalone backend proof-of-concept executing real-time long and short positions on \textbf{Arbitrum} driven by \textbf{Allora network} price predictions.
+  \item Validated trading flows on a \textbf{Tenderly mainnet fork} achieving zero transaction reverts; delivered the full prototype within \textbf{2 weeks} while learning \textbf{LangGraph} from scratch.
+  \item Developed an \textbf{agentic hire/fire control interface} via \textbf{CopilotKit}, allowing users to spawn, manage, and terminate trading agents through natural language with on-chain settlement.
+  \item \textbf{Tech}: Solidity, TypeScript, LangGraph, GMX SDK, MetaMask Delegation Toolkit, CopilotKit, Tenderly, Arbitrum
+\end{zitemize}
 
-\vspace{1pt}
-\resumeSubheading{Nethermind $|$ Smart Contract Auditor Intern}{Sept 2024 -- Dec 2024}{Remote, United Kingdom}{}
-\resumeItemListStart
-\resumeItem{Conducted security reviews across \textbf{re-staking} protocols, \textbf{AA paymasters}, \textbf{bridges}, \textbf{governance} modules, and \textbf{proof-of-liquidity} mechanisms.}
-\resumeItem{Reported vulnerabilities and provided mitigations to enhance the security of \textbf{smart contracts}.}
-\resumeItem{Analyzed smart contracts across \textbf{Solidity} and \textbf{Cairo} ecosystems.}
-\resumeItemListEnd
+\subsection{{Web3 Solutions Engineer \hfill JAN 2025 --- NOV 2025}}
+\subtext{BuildBear Labs \hfill Remote, Singapore}
+\begin{zitemize}
+  \item Created end-to-end \textbf{Web3 CI/CD test flows} with BuildBear, showcasing integrations and testing with complex protocols like \textbf{Uniswap V4} and V3, covering setup, whitelisting, automated deployment, and testing with GitHub Actions.
+  \item Spearheaded onboarding for \textbf{Across} and \textbf{LI.FI} bridge protocol teams, architecting testing solutions that yielded \textbf{50+ plugin access requests each} within 30 days of launch.
+  \item Performed black-box testing of pre-release features, identifying edge-case failures and providing technical feedback across product, frontend, backend, and infrastructure teams.
+  \item Researched and produced in-depth \textbf{video walkthroughs} and written tutorials for Across, LI.FI, and Pimlico paymaster plugins on BuildBear Sandbox environments.
+  \item \textbf{Tech}: Solidity, Foundry, TypeScript, Node.js, GitHub Actions, BuildBear SDK
+\end{zitemize}
 
-\vspace{1pt}
-\resumeSubheading{Kyte Social $|$ Full Stack Web2 \& Web3 Intern}{April 2024 -- July 2024}{Remote, India}{}
-\resumeItemListStart
-\resumeItem{Developed smart contracts with \textbf{Solidity} and implemented \textbf{ERC721}, \textbf{ERC1155} NFT standards using \textbf{OpenZeppelin}.}
-\vspace{-10pt}
-\resumeItem{Utilized \textbf{Factory Contract} pattern and implemented role-based smart contracts for token rewards with \textbf{ERC20} and \textbf{Chain Native Token} locking.}
-\resumeItem{Tested smart contracts using unit testing, fuzz testing, and invariant testing with \textbf{Foundry}.}
-\resumeItem{Signed off-chain messages for reward claiming from \textbf{NodeJS} server using \textbf{Web3JS}.}
-\resumeItem{Integrated smart contracts with frontend using \textbf{NextJS}, \textbf{Wagmi}, \textbf{Viem}, \textbf{EthersJS}, and \textbf{Web3JS}.}
-\resumeItem{Developed a user-friendly form \textbf{enabling rapid creation of custom NFT Collections, including both ERC721 and ERC1155 standards}, within seconds. Significantly \textbf{reduced time and effort for users by 90\%} while abstracting underlying complexities.}
-\resumeItem{Synced data to/from blockchain to backend with \textbf{MongoDB} database for consistency and authentication.}
-\resumeItemListEnd
 
-\resumeSubHeadingListEnd
-\vspace{-1pt}
+\subsection{{Smart Contract Auditor Intern \hfill SEPT 2024 --- DEC 2024}}
+\subtext{Nethermind \hfill Remote, United Kingdom}
+\begin{zitemize}
+  \item Conducted security reviews across \textbf{re-staking} protocols, \textbf{AA paymasters}, \textbf{bridges}, \textbf{governance} modules, and \textbf{proof-of-liquidity} mechanisms.
+  \item Reported vulnerabilities and provided mitigations to enhance smart contract security across \textbf{Solidity} and \textbf{Cairo} ecosystems.
+\end{zitemize}
+
+
+\subsection{{Full Stack Web2 \& Web3 Intern \hfill APRIL 2024 --- JULY 2024}}
+\subtext{Kyte Social \hfill Remote, India}
+\begin{zitemize}
+  \item Developed smart contracts with \textbf{Solidity} implementing \textbf{ERC721} and \textbf{ERC1155} NFT standards using \textbf{OpenZeppelin}; tested with \textbf{Foundry} unit, fuzz, and invariant tests.
+  \item Integrated smart contracts with frontend using \textbf{NextJS}, \textbf{Wagmi}, \textbf{Viem}, \textbf{EthersJS}, and \textbf{Web3JS}.
+  \item Developed a form enabling rapid NFT collection creation, \textbf{reducing user time and effort by 90\%} while abstracting underlying complexities.
+  \item Synced on-chain data to \textbf{MongoDB} backend; signed off-chain messages for reward claiming via \textbf{NodeJS} server using \textbf{Web3JS}.
+  \item \textbf{Tech}: Solidity, Foundry, Next.js, Wagmi, Viem, MongoDB, Node.js
+\end{zitemize}
+
+\end{document}
