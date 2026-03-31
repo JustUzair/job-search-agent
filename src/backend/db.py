@@ -16,7 +16,16 @@ DEFAULT_CONFIG = {
     "exclude_locations": ["onsite US", "onsite UK", "onsite Europe", "in-office", "hybrid"],
     "score_threshold": 60,
     # Title substrings to instantly disqualify
-    "skip_title_patterns": [
+    # DuckDuckGo site: search queries — used for autonomous ATS scraping.
+    # Format: "<keywords> site:<ats-domain>"  (no https://)
+    # Each keyword in config.keywords gets combined with each site to form a search.
+    "site_search_queries": [
+        "fullstack remote site:jobs.ashbyhq.com",
+        "backend remote site:jobs.workable.com",
+        "fullstack remote site:job-boards.greenhouse.io",
+        "backend remote site:jobs.lever.co",
+    ],
+        "skip_title_patterns": [
         "marketing manager", "content writer", "content strategist", "seo specialist",
         "social media manager", "social media specialist", "brand manager",
         "communications manager", "pr manager", "public relations", "copywriter",
@@ -583,3 +592,63 @@ def get_unscored_job_ids() -> set:
     ).fetchall()
     conn.close()
     return {row[0] for row in rows}
+
+# ── DDG site-search scrape log ────────────────────────────────────────────────
+
+def _ensure_ddg_search_log(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS ddg_search_log (
+            id          TEXT PRIMARY KEY,
+            query       TEXT NOT NULL,
+            results_count INTEGER DEFAULT 0,
+            searched_at TEXT
+        )
+    """)
+    conn.commit()
+
+
+def ddg_search_done_today(query: str) -> bool:
+    """Return True if this exact query was already searched today (IST date)."""
+    import hashlib
+    from datetime import datetime, timezone, timedelta
+    IST = timezone(timedelta(hours=5, minutes=30))
+    today = datetime.now(IST).date().isoformat()
+    qid = hashlib.md5(query.encode()).hexdigest()[:16]
+    conn = get_conn()
+    _ensure_ddg_search_log(conn)
+    row = conn.execute(
+        "SELECT searched_at FROM ddg_search_log WHERE id = ?", (qid,)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return False
+    return (row[0] or "")[:10] == today
+
+
+def log_ddg_search(query: str, results_count: int):
+    """Record that a DDG search query was executed now."""
+    import hashlib
+    from datetime import datetime, timezone, timedelta
+    IST = timezone(timedelta(hours=5, minutes=30))
+    qid = hashlib.md5(query.encode()).hexdigest()[:16]
+    now = datetime.now(IST).isoformat()
+    conn = get_conn()
+    _ensure_ddg_search_log(conn)
+    conn.execute(
+        "INSERT OR REPLACE INTO ddg_search_log (id, query, results_count, searched_at) VALUES (?,?,?,?)",
+        (qid, query, results_count, now),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_ddg_search_log(limit: int = 100) -> list:
+    """Return recent DDG search log entries for the UI."""
+    conn = get_conn()
+    _ensure_ddg_search_log(conn)
+    rows = conn.execute(
+        "SELECT query, results_count, searched_at FROM ddg_search_log ORDER BY searched_at DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

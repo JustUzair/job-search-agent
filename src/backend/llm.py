@@ -107,6 +107,7 @@ def _ollama(prompt, max_tokens, temperature: float = 0.3,
     - Read model name via _get_model() so TAILOR_MODEL hot-swap works.
     - Added json_mode / format="json" so chat_json() gets reliable JSON from
       small models without depending on perfect prompt adherence.
+      
     """
     from ollama import Client
     client = Client(host=OLLAMA_BASE_URL)

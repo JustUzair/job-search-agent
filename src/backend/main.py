@@ -388,6 +388,84 @@ async def get_sources():
     return db.get_distinct_sources()
 
 
+
+
+# ── Interview Prep ────────────────────────────────────────────────────────────
+
+class InterviewRequest(BaseModel):
+    jd: str
+    questions: list  # list of question strings
+
+
+@app.post("/api/interview/answer")
+def answer_interview_questions(body: InterviewRequest):
+    """
+    Given a job description and a list of questions from a hiring page,
+    answer each question using the candidate's profile + resume files as context.
+
+    The local LLM (Ollama) handles this — no external API needed.
+    Resume context comes from:
+      1. The candidate profile stored in the DB (always available).
+      2. The .tex resume files in RESUME_DIR (if mounted — richer detail).
+    """
+    if not body.jd.strip():
+        raise HTTPException(status_code=400, detail="jd must not be empty")
+    questions = [q.strip() for q in body.questions if q.strip()]
+    if not questions:
+        raise HTTPException(status_code=400, detail="at least one question required")
+
+    # ── Build resume context ──────────────────────────────────────────────────
+    profile_text = db.get_profile()
+
+    # Try to read .tex resume files for richer context (they contain full resume)
+    resume_context = profile_text
+    try:
+        files = tailor_mod.load_resume_files()
+        if files:
+            combined = "\n\n".join(
+                f"=== {rel_path} ===\n{content}"
+                for rel_path, content in list(files.items())[:8]  # cap at 8 files
+            )
+            resume_context = f"CANDIDATE PROFILE:\n{profile_text}\n\nRESUME (LaTeX source):\n{combined}"
+    except Exception:
+        pass  # profile_text alone is the fallback
+
+    # ── Answer each question ──────────────────────────────────────────────────
+    jd_snippet = body.jd[:2500]  # cap JD length so prompt fits in context
+    answers = []
+    for q in questions:
+        prompt = f"""You are helping a job candidate answer a specific question on a company's hiring application.
+
+CANDIDATE INFORMATION:
+{resume_context[:3000]}
+
+JOB DESCRIPTION (excerpt):
+{jd_snippet}
+
+QUESTION FROM THE HIRING PAGE:
+{q}
+
+Instructions:
+- Answer in first person as the candidate.
+- Be specific, honest, and concise (2-5 sentences unless the question clearly needs more).
+- Draw only from the candidate's actual experience described above.
+- If the candidate has no direct experience for the question, acknowledge it honestly
+  but pivot to related experience or transferable skills.
+- Do NOT invent experiences, projects, or skills not mentioned in the candidate info.
+- Match the tone to the role (professional but not stiff).
+
+Answer:"""
+        answer = llm.chat(prompt, max_tokens=400, temperature=0.3)
+        answers.append({"question": q, "answer": answer.strip()})
+
+    return {"answers": answers}
+
+
+@app.get("/api/ddg-search-log")
+def get_ddg_log():
+    """Return recent DDG site-search log so the UI can show what's been scraped."""
+    return db.get_ddg_search_log(limit=100)
+
 # ── Static files (React SPA) ──────────────────────────────────────────────────
 
 FRONTEND_DIST = Path(__file__).parent.parent.parent / "src" / "frontend" / "dist"

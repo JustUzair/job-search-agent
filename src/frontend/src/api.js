@@ -1,136 +1,147 @@
 const BASE = "/api";
 
 async function request(method, path, body) {
-    const opts = {
-        method,
-        headers: { "Content-Type": "application/json" },
-    };
-    if (body !== undefined) opts.body = JSON.stringify(body);
-    const res = await fetch(`${BASE}${path}`, opts);
-    if (!res.ok) {
-        const text = await res.text();
-        throw new Error(`${res.status}: ${text}`);
-    }
-    return res.json();
+  const opts = {
+    method,
+    headers: { "Content-Type": "application/json" },
+  };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const res = await fetch(`${BASE}${path}`, opts);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`${res.status}: ${text}`);
+  }
+  return res.json();
 }
 
 export function getJobs(status = "new", limit = 20, offset = 0) {
-    const params = new URLSearchParams({ status, limit, offset });
-    return request("GET", `/jobs?${params}`);
+  const params = new URLSearchParams({ status, limit, offset });
+  return request("GET", `/jobs?${params}`);
 }
 
 export function getAllJobs(limit = 50, offset = 0, source = "", status = "") {
-    const params = new URLSearchParams({ limit, offset });
-    if (source) params.set("source", source);
-    if (status) params.set("status", status);
-    return request("GET", `/jobs/all?${params}`);
+  const params = new URLSearchParams({ limit, offset });
+  if (source) params.set("source", source);
+  if (status) params.set("status", status);
+  return request("GET", `/jobs/all?${params}`);
 }
 
 export function setJobStatus(id, status) {
-    return request("POST", `/jobs/${id}/status`, { status });
+  return request("POST", `/jobs/${id}/status`, { status });
 }
 
 export function getJob(id) {
-    return request("GET", `/jobs/${id}`);
+  return request("GET", `/jobs/${id}`);
 }
 
 export function startScrape(sources = null) {
-    return request("POST", "/scrape", sources ? { sources } : {});
+  return request("POST", "/scrape", sources ? { sources } : {});
 }
 
 export function getScrapeStatus() {
-    return request("GET", "/scrape/status");
+  return request("GET", "/scrape/status");
 }
 
 export function tailorJob(params) {
-    const payload = {
-        force: params?.force === true,
-    };
+  const payload = {
+    force: params?.force === true,
+  };
 
-    if (
-        typeof params?.job_id === "number" ||
-        typeof params?.job_id === "string"
-    ) {
-        payload.job_id = params.job_id;
-    }
-    if (typeof params?.variant_name === "string") {
-        payload.variant_name = params.variant_name;
-    }
-    if (typeof params?.url === "string") {
-        payload.url = params.url;
-    }
-    if (typeof params?.raw_jd === "string") {
-        payload.raw_jd = params.raw_jd;
-    }
+  if (
+    typeof params?.job_id === "number" ||
+    typeof params?.job_id === "string"
+  ) {
+    payload.job_id = params.job_id;
+  }
+  if (typeof params?.variant_name === "string") {
+    payload.variant_name = params.variant_name;
+  }
+  if (typeof params?.url === "string") {
+    payload.url = params.url;
+  }
+  if (typeof params?.raw_jd === "string") {
+    payload.raw_jd = params.raw_jd;
+  }
 
-    return request("POST", "/tailor", payload);
+  return request("POST", "/tailor", payload);
 }
 
 export function getVariants() {
-    return request("GET", "/variants");
+  return request("GET", "/variants");
 }
 
 export function getVariantZipUrl(id) {
-    return `${BASE}/variants/${id}/zip`;
+  return `${BASE}/variants/${id}/zip`;
 }
 
 export function getVariantPdfUrl(id) {
-    return `${BASE}/variants/${id}/pdf`;
+  return `${BASE}/variants/${id}/pdf`;
 }
 
 export function getFunded(limit = 50) {
-    return request("GET", `/funded?limit=${limit}`);
+  return request("GET", `/funded?limit=${limit}`);
 }
 
 export function getJournal(limit = 30) {
-    const params = new URLSearchParams({ limit });
-    return request("GET", `/journal?${params}`);
+  const params = new URLSearchParams({ limit });
+  return request("GET", `/journal?${params}`);
 }
 
 export function addJournalEntry(entry) {
-    return request("POST", "/journal", { entry });
+  return request("POST", "/journal", { entry });
 }
 
 export function getResumeDiff() {
-    return request("POST", "/resumediff", {});
+  return request("POST", "/resumediff", {});
 }
 
 export function getConfig() {
-    return request("GET", "/config");
+  return request("GET", "/config");
 }
 
 export function saveConfig(cfg) {
-    return request("PUT", "/config", cfg);
+  return request("PUT", "/config", cfg);
 }
 
 export function getProfile() {
-    return request("GET", "/profile");
+  return request("GET", "/profile");
 }
 
 export function saveProfile(profile) {
-    return request("PUT", "/profile", { profile });
+  return request("PUT", "/profile", { profile });
 }
 
 export function syncProfileFromJournal() {
-    return request("POST", "/profile/sync-from-journal", {});
+  return request("POST", "/profile/sync-from-journal", {});
 }
 
 export function getBatches() {
-    return request("GET", "/batches");
+  return request("GET", "/batches");
 }
 
 export function pollBatches() {
-    return request("POST", "/batches/poll", {});
+  return request("POST", "/batches/poll", {});
 }
 
 export function getSources() {
-    return request("GET", "/sources");
+  return request("GET", "/sources");
 }
 
 export function editResume(instructions, variantName = "") {
-    return request("POST", "/resume/edit", { instructions, variant_name: variantName });
+  return request("POST", "/resume/edit", {
+    instructions,
+    variant_name: variantName,
+  });
 }
 
 export function refineVariant(variantId, feedback) {
-    return request("POST", `/variants/${variantId}/refine`, { feedback });
+  return request("POST", `/variants/${variantId}/refine`, { feedback });
+}
+
+export function answerInterviewQuestions(jd, questions) {
+  return request("POST", "/interview/answer", { jd, questions });
+}
+
+export function getDdgSearchLog() {
+  return request("GET", "/ddg-search-log");
 }

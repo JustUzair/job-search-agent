@@ -1,18 +1,19 @@
-import { Routes, Route, NavLink } from 'react-router-dom'
-import Jobs from './pages/Jobs.jsx'
-import Resumes from './pages/Resumes.jsx'
-import ResumeEdit from './pages/ResumeEdit.jsx'
-import Journal from './pages/Journal.jsx'
-import Config from './pages/Config.jsx'
-import Funded from './pages/Funded.jsx'
+import { Routes, Route, NavLink } from "react-router-dom";
+import Jobs from "./pages/Jobs.jsx";
+import Resumes from "./pages/Resumes.jsx";
+import ResumeEdit from "./pages/ResumeEdit.jsx";
+import Journal from "./pages/Journal.jsx";
+import Config from "./pages/Config.jsx";
+import Funded from "./pages/Funded.jsx";
+import InterviewPrep from "./pages/InterviewPrep.jsx";
 
 function Layout({ children }) {
   const linkClass = ({ isActive }) =>
     `px-3 py-2 rounded text-sm font-medium transition-colors ${
       isActive
-        ? 'bg-emerald-600 text-white'
-        : 'text-slate-300 hover:text-white hover:bg-slate-700'
-    }`
+        ? "bg-emerald-600 text-white"
+        : "text-slate-300 hover:text-white hover:bg-slate-700"
+    }`;
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">
@@ -22,29 +23,94 @@ function Layout({ children }) {
             🦞 OpenClaw
           </span>
           <div className="flex gap-1">
-            <NavLink to="/" className={linkClass} end>Jobs</NavLink>
-            <NavLink to="/funded" className={linkClass}>Funded</NavLink>
-            <NavLink to="/resumes" className={linkClass}>Resumes</NavLink>
-            <NavLink to="/resume-edit" className={linkClass}>Edit Resume</NavLink>
-            <NavLink to="/journal" className={linkClass}>Journal</NavLink>
-            <NavLink to="/config" className={linkClass}>Config</NavLink>
+            <NavLink to="/" className={linkClass} end>
+              Jobs
+            </NavLink>
+            <NavLink to="/funded" className={linkClass}>
+              Funded
+            </NavLink>
+            <NavLink to="/resumes" className={linkClass}>
+              Resumes
+            </NavLink>
+            <NavLink to="/resume-edit" className={linkClass}>
+              Edit Resume
+            </NavLink>
+            <NavLink to="/journal" className={linkClass}>
+              Journal
+            </NavLink>
+            <NavLink to="/interview" className={linkClass}>
+              Interview
+            </NavLink>
+            <NavLink to="/config" className={linkClass}>
+              Config
+            </NavLink>
           </div>
         </div>
       </nav>
       <main className="max-w-7xl mx-auto px-4 py-6">{children}</main>
     </div>
-  )
+  );
 }
 
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Layout><Jobs /></Layout>} />
-      <Route path="/funded" element={<Layout><Funded /></Layout>} />
-      <Route path="/resumes" element={<Layout><Resumes /></Layout>} />
-      <Route path="/resume-edit" element={<Layout><ResumeEdit /></Layout>} />
-      <Route path="/journal" element={<Layout><Journal /></Layout>} />
-      <Route path="/config" element={<Layout><Config /></Layout>} />
+      <Route
+        path="/"
+        element={
+          <Layout>
+            <Jobs />
+          </Layout>
+        }
+      />
+      <Route
+        path="/funded"
+        element={
+          <Layout>
+            <Funded />
+          </Layout>
+        }
+      />
+      <Route
+        path="/resumes"
+        element={
+          <Layout>
+            <Resumes />
+          </Layout>
+        }
+      />
+      <Route
+        path="/resume-edit"
+        element={
+          <Layout>
+            <ResumeEdit />
+          </Layout>
+        }
+      />
+      <Route
+        path="/journal"
+        element={
+          <Layout>
+            <Journal />
+          </Layout>
+        }
+      />
+      <Route
+        path="/interview"
+        element={
+          <Layout>
+            <InterviewPrep />
+          </Layout>
+        }
+      />
+      <Route
+        path="/config"
+        element={
+          <Layout>
+            <Config />
+          </Layout>
+        }
+      />
     </Routes>
-  )
+  );
 }

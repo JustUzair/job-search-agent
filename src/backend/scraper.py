@@ -613,12 +613,187 @@ def poll_pending_batches() -> dict:
     return {"checked": len(pending), "completed": completed_count, "jobs_scored": total_scored}
 
 
+
+
+# ── DDG site-search scraper (autonomous ATS discovery) ────────────────────────
+
+DEFAULT_SITE_QUERIES = [
+    "fullstack remote site:jobs.ashbyhq.com",
+    "backend remote site:jobs.workable.com",
+    "fullstack remote site:job-boards.greenhouse.io",
+    "backend remote site:jobs.lever.co",
+]
+
+# These selectors describe how to pull basic job info off each platform's
+# individual job-posting page. Keeps extraction logic in one place.
+_ATS_META = {
+    "jobs.ashbyhq.com":        {"title": "h1", "company_re": r"ashbyhq\.com/([^/]+)/"},
+    "job-boards.greenhouse.io": {"title": "h1.app-title", "company_re": r"greenhouse\.io/([^/]+)/"},
+    "jobs.lever.co":           {"title": "h2", "company_re": r"lever\.co/([^/]+)/"},
+    "jobs.workable.com":       {"title": "h2", "company_re": r"workable\.com/([^/]+)/"},
+}
+
+
+def _ddg_search(query: str, max_results: int = 30) -> list:
+    """
+    Query DuckDuckGo HTML search and return a list of result URLs.
+    DDG HTML endpoint: https://html.duckduckgo.com/html/?q=QUERY
+    Results are in <a class="result__a"> tags, with the real URL in href
+    (sometimes wrapped in a DDG redirect that contains uddg= param).
+    """
+    try:
+        r = requests.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": query},
+            headers={**HEADERS, "Accept-Language": "en-US,en;q=0.9"},
+            timeout=12,
+        )
+        soup = BeautifulSoup(r.text, "html.parser")
+        urls = []
+        for a in soup.select("a.result__a"):
+            href = a.get("href", "")
+            if "uddg=" in href:
+                import urllib.parse
+                parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+                href = parsed.get("uddg", [href])[0]
+            if href.startswith("http") and href not in urls:
+                urls.append(href)
+            if len(urls) >= max_results:
+                break
+        return urls
+    except Exception as e:
+        print(f"[ddg_search] query={query!r} error: {e}")
+        return []
+
+
+def _fetch_job_page(url: str) -> dict:
+    """
+    Fetch a job-posting URL and extract title, company, description, work_type.
+    Returns {} on failure so callers can safely skip.
+    """
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=10)
+        if r.status_code != 200:
+            return {}
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        # ── Title ──────────────────────────────────────────────────────────
+        title = ""
+        for sel in ["h1.app-title", "h1", "h2", "title"]:
+            tag = soup.select_one(sel)
+            if tag and tag.get_text(strip=True):
+                title = tag.get_text(strip=True)[:200]
+                break
+
+        # ── Company (from URL slug) ─────────────────────────────────────
+        company = ""
+        for domain, meta in _ATS_META.items():
+            if domain in url:
+                m = re.search(meta["company_re"], url)
+                if m:
+                    company = m.group(1).replace("-", " ").title()
+                break
+
+        # ── Description (grab all visible text from main/article/body) ──
+        for tag in soup(["script", "style", "nav", "footer", "header"]):
+            tag.decompose()
+        body = soup.find("main") or soup.find("article") or soup.body
+        description = (body.get_text(" ", strip=True) if body else "")[:3000]
+
+        if not title:
+            return {}
+
+        return dict(
+            title=title,
+            company=company or _first_word(title),
+            description=description,
+            work_type=detect_work_type(title + " " + description[:500]),
+            location=detect_location(description[:500]),
+        )
+    except Exception as e:
+        print(f"[fetch_job_page] {url}: {e}")
+        return {}
+
+
+def scrape_ddg_site_search(max_combos_per_run: int = 20) -> list:
+    """
+    Autonomously scrape jobs by querying DuckDuckGo with site: operator.
+
+    Strategy
+    --------
+    1.  Reads site_search_queries from config (list of "keyword site:domain" strings).
+    2.  Cross-products each base query with config.keywords so every keyword you
+        care about gets searched on every ATS platform.
+    3.  Tracks every (query) in ddg_search_log; skips ones already searched today.
+    4.  Processes up to max_combos_per_run new queries per scrape run.
+    5.  For each matching URL, fetches the job page and extracts title/company/desc.
+
+    Adding more keywords in Config → more searches generated automatically.
+    Adding more entries to site_search_queries → covers more ATS boards.
+    Result: each daily scrape explores a different slice → unlimited coverage over time.
+    """
+    cfg = db.get_config()
+    base_queries = cfg.get("site_search_queries", DEFAULT_SITE_QUERIES)
+    keywords = cfg.get("keywords", [])
+
+    # Build combos: for each base "role remote site:domain", swap the first
+    # token with each config keyword — or just use the base query as-is.
+    combos = []
+    for base in base_queries:
+        combos.append(base)  # always include the base query itself
+        # Also generate per-keyword variants if base has a site: token
+        if "site:" in base:
+            site_part = "site:" + base.split("site:")[-1].strip()
+            site_part = re.sub(r"^site:https?://", "site:", site_part)  # strip http(s)
+            for kw in keywords[:8]:  # cap at 8 to avoid explosion
+                variant = f"{kw} remote {site_part}"
+                if variant not in combos:
+                    combos.append(variant)
+
+    # Skip already-searched combos (per today)
+    unsearched = [q for q in combos if not db.ddg_search_done_today(q)]
+    to_run = unsearched[:max_combos_per_run]
+
+    if not to_run:
+        print("[ddg_site_search] all combos already searched today — nothing to do")
+        return []
+
+    print(f"[ddg_site_search] running {len(to_run)} search combos "
+          f"({len(combos) - len(to_run)} skipped, already done today)")
+
+    all_jobs = []
+    for query in to_run:
+        urls = _ddg_search(query)
+        print(f"  query={query!r} → {len(urls)} URLs")
+        new_jobs = []
+        for url in urls:
+            uid = _uid("ddg", url)
+            if db.job_exists(uid):
+                continue
+            info = _fetch_job_page(url)
+            if not info:
+                continue
+            new_jobs.append(dict(
+                id=uid,
+                source="ddg_site_search",
+                url=url,
+                posted_at="",
+                **info,
+            ))
+            time.sleep(0.3)  # polite crawl delay between job pages
+
+        db.log_ddg_search(query, len(new_jobs))
+        all_jobs.extend(new_jobs)
+        time.sleep(2)  # polite delay between DDG queries
+
+    return all_jobs
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def run_scrape(sources=None):
     db.init_db()
     cfg = db.get_config()
-    active = sources or ["hn_jobs", "hn_jobs_page", "web3career", "cryptorank", "dropstab", "ats"]
+    active = sources or ["hn_jobs", "hn_jobs_page", "web3career", "cryptorank", "dropstab", "ats", "ddg_site_search"]
     skip_titles = cfg.get("skip_title_patterns", [])
     raw = []
 
@@ -634,6 +809,8 @@ def run_scrape(sources=None):
         j = scrape_dropstab(); print(f"  dropstab: {len(j)}"); raw += j
     if "ats" in active:
         j = sources_ats.scrape_ats(); print(f"  ats: {len(j)}"); raw += j
+    if "ddg_site_search" in active:
+        j = scrape_ddg_site_search(); print(f"  ddg_site_search: {len(j)}"); raw += j
 
     # 1. Title pre-filter — cheapest check, runs before everything else
     title_passed = [j for j in raw if passes_title_filter(j.get("title", ""), skip_titles)]
