@@ -60,6 +60,8 @@ def _ollama(prompt):
     resp = client.chat(
         model=MODEL,
         messages=[{"role": "user", "content": prompt}],
+        think=False,
+        stream=False,
     )
     return resp.message.content
 
