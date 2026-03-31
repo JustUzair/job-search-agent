@@ -465,7 +465,7 @@ def scrape_dropstab():
 def _find_careers(company_name):
     """Try to find a careers/jobs page for the company via DuckDuckGo."""
     CAREERS_DOMAINS = ["lever.co", "greenhouse.io", "ashbyhq.com", "workable.com",
-                       "jobs.ashbyhq", "boards.greenhouse", "apply.workable","jobs.solana.com"]
+                       "jobs.ashbyhq", "boards.greenhouse", "apply.workable","jobs.solana.com","jobstash.xyz"]
     try:
         q = f'"{company_name}" jobs careers'
         r = requests.get(

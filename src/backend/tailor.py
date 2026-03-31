@@ -321,6 +321,7 @@ JSON OUTPUT RULES (critical — invalid JSON causes a hard failure):
 - Every newline inside a JSON string value MUST be written as the two-character sequence \\n, NOT a literal line break.
 - Double curly braces in LaTeX (e.g. \\section{{...}}) stay as-is; they are valid JSON string content.
 - Return ONLY the files that actually changed.
+- Ensure that you DO NOT return invalid JSON or Unterminated string or anything that would break the JSON parsing on the client side.
 
 TAILORING RULES:
 - Reorder bullets to surface most relevant experience first

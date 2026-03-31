@@ -13,3 +13,5 @@ __pycache__/*
 
 /data/resumes
 node_modules/
+
+jobs.db
