@@ -109,6 +109,7 @@ RULES:
 - Keep all LaTeX commands intact
 - Return ONLY the files that actually changed
 - Pick ONLY 3 projects based on the job description
+- Pick ONLY 3 best from the given professional experiences, the ones most relevant to the job description; remove or de-emphasize less relevant roles
 
 Respond with ONLY a JSON object: {{"sections/summary.tex": "...full content...", ...}}
 No markdown fences around the JSON."""

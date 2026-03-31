@@ -1,11 +1,13 @@
 """
-Thin wrapper around OpenAI and Anthropic so the rest of the code
+Thin wrapper around OpenAI, Anthropic and Ollama so the rest of the code
 doesn't care which provider is active.
 
 .env config:
-  MODEL_PROVIDER=openai       # openai | anthropic
-  MODEL_API_KEY=sk-...
-  MODEL_NAME=gpt-4o-mini      # or claude-haiku-4-5-20251001 etc.
+  MODEL_PROVIDER=ollama          # openai | anthropic | ollama
+  MODEL_API_KEY=ollama           # not needed for ollama
+  MODEL_NAME=nemotron-3-nano:4b  # any model pulled in Ollama
+  TAILOR_MODEL=nemotron-3-nano:4b
+  OLLAMA_BASE_URL=http://host.docker.internal:11434
 """
 import os
 import json
@@ -14,24 +16,67 @@ import re
 # Set LLM_VERBOSE=true in .env to see raw model output before JSON parsing
 LLM_VERBOSE = os.environ.get("LLM_VERBOSE", "").lower() in ("1", "true", "yes")
 PROVIDER = os.environ.get("MODEL_PROVIDER", "ollama").lower()
-API_KEY  = os.environ.get("MODEL_API_KEY", "ollama") or os.environ.get("OPENAI_API_KEY", "") # ollama doesnt need an api key
-MODEL    = os.environ.get("MODEL_NAME", "gpt-oss:20b-cloud")
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434") # cloud hosted or local model
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal:11434")
+
+# NOTE: MODEL and API_KEY are intentionally NOT module-level constants.
+# tailor.py hot-swaps MODEL_NAME via os.environ at runtime for TAILOR_MODEL,
+# so we must read them fresh inside each call.
+
+def _get_model() -> str:
+    return os.environ.get("MODEL_NAME", "nemotron-3-nano:4b")
+
+def _get_api_key() -> str:
+    return (
+        os.environ.get("MODEL_API_KEY", "")
+        or os.environ.get("OPENAI_API_KEY", "")
+        or "ollama"
+    )
+
+
+# ── Public interface ──────────────────────────────────────────────────────────
 
 def chat(prompt: str, max_tokens: int = 200, temperature: float = 0.2) -> str:
     """Send a single-turn prompt, return the assistant text."""
     if PROVIDER == "anthropic":
         return _anthropic(prompt, max_tokens, temperature)
     if PROVIDER == "ollama":
-        return _ollama(prompt, max_tokens)
+        return _ollama(prompt, max_tokens, temperature)
     return _openai(prompt, max_tokens, temperature)
 
 
+def chat_json(prompt: str, max_tokens: int = 200) -> dict:
+    """Like chat() but enforces JSON output and parses the result.
+    Returns {} on failure so callers always get a dict.
+    """
+    if PROVIDER == "ollama":
+        # Use Ollama's native json format mode — far more reliable than hoping
+        # a small model produces valid JSON from a prompt instruction alone.
+        raw = _ollama(prompt, max_tokens, temperature=0.1, json_mode=True)
+    else:
+        raw = chat(prompt, max_tokens=max_tokens, temperature=0.1)
+
+    if LLM_VERBOSE:
+        preview = (raw or "").replace("\n", " ").strip()
+        print(f"  [llm:raw]   {preview}")
+
+    raw = re.sub(r"^```[a-z]*\n?", "", raw or "")
+    raw = re.sub(r"\n?```$", "", raw).strip()
+
+    try:
+        return json.loads(raw)
+    except Exception as e:
+        if LLM_VERBOSE:
+            print(f"  [llm:parse_fail]  {e}  →  {raw[:200]}")
+        return {}
+
+
+# ── Provider implementations ──────────────────────────────────────────────────
+
 def _openai(prompt, max_tokens, temperature):
     from openai import OpenAI
-    client = OpenAI(api_key=API_KEY)
+    client = OpenAI(api_key=_get_api_key())
     resp = client.chat.completions.create(
-        model=MODEL,
+        model=_get_model(),
         temperature=temperature,
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
@@ -41,53 +86,53 @@ def _openai(prompt, max_tokens, temperature):
 
 def _anthropic(prompt, max_tokens, temperature):
     import anthropic
-    client = anthropic.Anthropic(api_key=API_KEY)
+    client = anthropic.Anthropic(api_key=_get_api_key())
     msg = client.messages.create(
-        model=MODEL,
+        model=_get_model(),
         max_tokens=max_tokens,
         temperature=temperature,
         messages=[{"role": "user", "content": prompt}],
     )
     return msg.content[0].text.strip()
 
-def _ollama(prompt, max_tokens: int = 200):
-    """Call a locally-running Ollama instance via its OpenAI-compatible endpoint."""
+
+def _ollama(prompt, max_tokens, temperature: float = 0.3,
+            json_mode: bool = True) -> str:
+    """
+    Call a locally-running Ollama instance.
+
+    Key fixes vs original:
+    - Removed `think=False` — passing that param to a non-thinking model
+      causes Ollama to return empty message.content (root cause of parse_fail).
+    - Read model name via _get_model() so TAILOR_MODEL hot-swap works.
+    - Added json_mode / format="json" so chat_json() gets reliable JSON from
+      small models without depending on perfect prompt adherence.
+    """
     from ollama import Client
     client = Client(host=OLLAMA_BASE_URL)
-    resp = client.chat(
-        model=MODEL,
+
+    kwargs = dict(
+        model=_get_model(),
         messages=[{"role": "user", "content": prompt}],
         think=False,
         stream=False,
-        options={"num_predict": max_tokens},
+        options={
+            "temperature": temperature,
+        },
     )
-    return resp.message.content
+
+    if json_mode:
+        # Constrains Ollama's output to valid JSON grammar — works on any model
+        kwargs["format"] = "json"
+
+    resp = client.chat(**kwargs)
+    return (resp.message.content or "").strip()
 
 
-def chat_json(prompt: str, max_tokens: int = 200) -> dict:
-    """Like chat() but strips fences and parses JSON, returns {} on failure."""
-    raw = chat(prompt, max_tokens=max_tokens, temperature=0.1)
-
-    if LLM_VERBOSE:
-        preview = raw.replace("\n", " ").strip()
-        print(f"  [llm:raw]   {preview[:300]}")
-
-    raw = re.sub(r"^```[a-z]*\n?", "", raw)
-    raw = re.sub(r"\n?```$", "", raw).strip()
-    try:
-        return json.loads(raw)
-    except Exception as e:
-        if LLM_VERBOSE:
-            print(f"  [llm:parse_fail]  {e}  →  {raw[:200]}")
-        return {}
-
-
-# ── Batch scoring (Anthropic Message Batches API — 50% cheaper) ──────────
+# ── Batch scoring ─────────────────────────────────────────────────────────────
 
 def create_scoring_batch(jobs: list, candidate_profile: str) -> str | None:
-    """Submit jobs for batch scoring via Anthropic or OpenAI.
-    Returns batch_id or None if batching unavailable.
-    """
+    """Submit jobs for batch scoring. Returns batch_id or None."""
     if not jobs:
         return None
     if PROVIDER == "anthropic":
@@ -98,11 +143,12 @@ def create_scoring_batch(jobs: list, candidate_profile: str) -> str | None:
         return _create_ollama_batch(jobs, candidate_profile)
     return None
 
+
 def _create_ollama_batch(jobs, candidate_profile):
     """
-    Runs concurrent scoring requests against a local Ollama instance.
-    Worker count is controlled by OLLAMA_BATCH_WORKERS (default 4).
-    Returns a special 'LOCAL_BATCH_DONE:...' string so poll_batch() resolves it instantly.
+    Run concurrent scoring requests against a local Ollama instance.
+    Worker count controlled by OLLAMA_BATCH_WORKERS (default 4).
+    Returns a LOCAL_BATCH_DONE: string so poll_batch() resolves instantly.
     """
     import concurrent.futures
 
@@ -111,7 +157,13 @@ def _create_ollama_batch(jobs, candidate_profile):
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_job = {
-            executor.submit(_ollama, _build_score_prompt(job, candidate_profile), 80): job
+            executor.submit(
+                _ollama,
+                _build_score_prompt(job, candidate_profile),
+                80,     # max_tokens
+                0.1,    # temperature
+                True,   # json_mode — forces valid JSON from small models
+            ): job
             for job in jobs
         }
         for future in concurrent.futures.as_completed(future_to_job):
@@ -135,18 +187,18 @@ def _create_ollama_batch(jobs, candidate_profile):
                 })
 
     return f"LOCAL_BATCH_DONE:{json.dumps(results)}"
-    
+
 
 def _create_anthropic_batch(jobs, candidate_profile):
     import anthropic
-    client = anthropic.Anthropic(api_key=API_KEY)
+    client = anthropic.Anthropic(api_key=_get_api_key())
     reqs = []
     for job in jobs:
         prompt = _build_score_prompt(job, candidate_profile)
         reqs.append({
             "custom_id": job["id"],
             "params": {
-                "model": MODEL,
+                "model": _get_model(),
                 "max_tokens": 80,
                 "temperature": 0.1,
                 "messages": [{"role": "user", "content": prompt}],
@@ -157,12 +209,11 @@ def _create_anthropic_batch(jobs, candidate_profile):
 
 
 def _create_openai_batch(jobs, candidate_profile):
-    """OpenAI Batch API: write JSONL → upload file → create batch → return batch_id."""
+    """OpenAI Batch API: write JSONL → upload → create batch → return batch_id."""
     import tempfile
     from openai import OpenAI
-    client = OpenAI(api_key=API_KEY)
+    client = OpenAI(api_key=_get_api_key())
 
-    # Write JSONL to temp file
     lines = []
     for job in jobs:
         prompt = _build_score_prompt(job, candidate_profile)
@@ -171,7 +222,7 @@ def _create_openai_batch(jobs, candidate_profile):
             "method": "POST",
             "url": "/v1/chat/completions",
             "body": {
-                "model": MODEL,
+                "model": _get_model(),
                 "max_tokens": 80,
                 "temperature": 0.1,
                 "messages": [{"role": "user", "content": prompt}],
@@ -196,10 +247,10 @@ def _create_openai_batch(jobs, candidate_profile):
         _os.unlink(tmp_path)
 
 
+# ── Batch polling ─────────────────────────────────────────────────────────────
+
 def poll_batch(batch_id: str, provider: str | None = None) -> dict | None:
-    """Check batch status. Returns {status, results} or None.
-    Provider param overrides global PROVIDER (for polling historical batches).
-    """
+    """Check batch status. Returns {status, results} or None."""
     prov = (provider or PROVIDER).lower()
     if prov == "anthropic":
         return _poll_anthropic_batch(batch_id)
@@ -211,12 +262,7 @@ def poll_batch(batch_id: str, provider: str | None = None) -> dict | None:
 
 
 def _poll_ollama_batch(batch_id: str) -> dict | None:
-    """
-    Ollama batches are run synchronously in _create_ollama_batch().
-    The results are embedded directly in the batch_id string as:
-      'LOCAL_BATCH_DONE:{json_array}'
-    So polling is instant — just parse the embedded results.
-    """
+    """Ollama batches complete synchronously; results are embedded in batch_id."""
     if batch_id.startswith("LOCAL_BATCH_DONE:"):
         try:
             results_json = batch_id[len("LOCAL_BATCH_DONE:"):]
@@ -225,14 +271,12 @@ def _poll_ollama_batch(batch_id: str) -> dict | None:
         except Exception as e:
             print(f"[poll_ollama_batch] failed to parse embedded results: {e}")
             return {"status": "completed", "results": []}
-    # Shouldn't happen, but treat unknown IDs as still in progress
     return {"status": "in_progress", "results": []}
-
 
 
 def _poll_anthropic_batch(batch_id):
     import anthropic
-    client = anthropic.Anthropic(api_key=API_KEY)
+    client = anthropic.Anthropic(api_key=_get_api_key())
     batch = client.messages.batches.retrieve(batch_id)
     if batch.processing_status != "ended":
         return {"status": "in_progress", "results": []}
@@ -258,9 +302,8 @@ def _poll_anthropic_batch(batch_id):
 
 
 def _poll_openai_batch(batch_id):
-    """Poll OpenAI batch: retrieve status → download output JSONL → parse results."""
     from openai import OpenAI
-    client = OpenAI(api_key=API_KEY)
+    client = OpenAI(api_key=_get_api_key())
     batch = client.batches.retrieve(batch_id)
 
     if batch.status in ("validating", "in_progress", "finalizing"):
@@ -268,7 +311,6 @@ def _poll_openai_batch(batch_id):
     if batch.status in ("failed", "expired", "cancelled"):
         return {"status": batch.status, "results": []}
 
-    # completed — download output
     if not batch.output_file_id:
         return {"status": "completed", "results": []}
 
@@ -298,6 +340,8 @@ def _poll_openai_batch(batch_id):
             continue
     return {"status": "completed", "results": results}
 
+
+# ── Prompt builder ────────────────────────────────────────────────────────────
 
 def _build_score_prompt(job: dict, candidate_profile: str) -> str:
     desc = (job.get("description") or "")[:1200]
