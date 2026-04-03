@@ -10,6 +10,12 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, Optional
 
+from dotenv import load_dotenv
+
+# Load .env from the project root (works both locally and in Docker if you
+# mount a .env file). override=False means real env vars take precedence.
+load_dotenv(Path(__file__).parent.parent.parent / ".env", override=False)
+
 from fastapi import FastAPI, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
@@ -22,6 +28,7 @@ import db
 import scraper as scraper_mod
 import tailor as tailor_mod
 import llm
+import outreach as outreach_mod
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -34,6 +41,7 @@ _scrape_state = {"running": False, "last_result": None, "last_run": None}
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db()
+    outreach_mod.init_outreach_tables()
     scheduler = AsyncIOScheduler(timezone="Asia/Kolkata")
     scheduler.add_job(_scheduled_scrape, trigger="cron", hour=8, minute=0)
     scheduler.add_job(_poll_batches_bg, trigger="interval", minutes=5, id="batch_poll")
@@ -466,19 +474,9 @@ def get_ddg_log():
     """Return recent DDG site-search log so the UI can show what's been scraped."""
     return db.get_ddg_search_log(limit=100)
 
-# ── Static files (React SPA) ──────────────────────────────────────────────────
+# ── Static files (React SPA) — registered LAST so API routes always win ─────
 
 FRONTEND_DIST = Path(__file__).parent.parent.parent / "src" / "frontend" / "dist"
-if FRONTEND_DIST.exists():
-    app.mount(
-        "/assets",
-        StaticFiles(directory=str(FRONTEND_DIST / "assets")),
-        name="assets",
-    )
-
-    @app.get("/{full_path:path}")
-    async def serve_spa(full_path: str):
-        return FileResponse(str(FRONTEND_DIST / "index.html"))
 
 
 @app.get("/api/resume/compile-test")
@@ -508,3 +506,263 @@ def resume_compile_test():
             "files_loaded": list(files.keys()),
             "log": log[-3000:],   # last 3000 chars of latexmk output
         }
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# OUTREACH ROUTES — paste these into main.py (after existing imports/models)
+# Also add:  import outreach as outreach_mod
+# And in lifespan: outreach_mod.init_outreach_tables()
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── Pydantic models ───────────────────────────────────────────────────────────
+
+class ScrapeOutreachRequest(BaseModel):
+    company: str
+    designation: str
+    location: str = ""
+    email_domain: str
+    pages: int = 3
+    email_pattern: str = "firstname.lastname"
+    provider: str = "serper"
+
+
+class OutreachTemplateRequest(BaseModel):
+    name: str
+    subject: str
+    body: str
+
+
+class SendBulkRequest(BaseModel):
+    contact_ids: list
+    template_id: int
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str
+    smtp_password: str
+    sender_name: str
+    delay_seconds: float = 3.0
+
+
+class ContactStatusUpdate(BaseModel):
+    status: str
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+_PROVIDER_ENV = {
+    "serper":     "SERPER_API_KEY",
+    "scraperapi": "SCRAPERAPI_KEY",
+    "hunter":     "HUNTER_API_KEY",
+}
+
+
+@app.get("/api/outreach/providers")
+def get_outreach_providers():
+    """Return which scraper providers have their API key configured in env."""
+    return {
+        provider: bool(os.environ.get(env_var))
+        for provider, env_var in _PROVIDER_ENV.items()
+    }
+
+
+@app.post("/api/outreach/scrape")
+async def scrape_outreach(req: ScrapeOutreachRequest):
+    """Kick off a LinkedIn people scrape. API key is read from server env vars."""
+    env_var = _PROVIDER_ENV.get(req.provider, "SERPER_API_KEY")
+    api_key = os.environ.get(env_var, "")
+    if not api_key:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{env_var} is not set. Add it to your .env / docker-compose environment.",
+        )
+
+    # Capture locals so the lambda is safe inside run_in_executor
+    _company     = req.company
+    _designation = req.designation
+    _location    = req.location
+    _domain      = req.email_domain
+    _pages       = req.pages
+    _pattern     = req.email_pattern
+    _provider    = req.provider
+    _key         = api_key
+
+    result = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: outreach_mod.scrape_linkedin_people(
+            company=_company,
+            designation=_designation,
+            location=_location,
+            email_domain=_domain,
+            pages=_pages,
+            scraper_api_key=_key,
+            email_pattern=_pattern,
+            provider=_provider,
+        ),
+    )
+    saved = outreach_mod.save_contacts(result["contacts"])
+    return {
+        "scraped": len(result["contacts"]),
+        "saved": saved,
+        "errors": result["errors"],
+    }
+
+
+@app.get("/api/outreach/contacts")
+def get_outreach_contacts(status: str = "", company: str = ""):
+    return outreach_mod.get_contacts(
+        status=status or None,
+        company=company or None,
+    )
+
+
+@app.patch("/api/outreach/contacts/{contact_id}")
+def update_outreach_contact(contact_id: str, body: ContactStatusUpdate):
+    outreach_mod.update_contact_status(contact_id, body.status)
+    return {"ok": True}
+
+
+@app.delete("/api/outreach/contacts/{contact_id}")
+def delete_outreach_contact(contact_id: str):
+    outreach_mod.delete_contact(contact_id)
+    return {"ok": True}
+
+
+@app.post("/api/outreach/contacts/add")
+def add_manual_contact(body: dict):
+    """Manually add a single contact."""
+    from datetime import datetime
+    import hashlib
+    first = body.get("first_name", "").strip()
+    last = body.get("last_name", "").strip()
+    company = body.get("company", "").strip()
+    email = body.get("email", "").strip()
+    if not email:
+        domain = body.get("email_domain", "")
+        pattern = body.get("email_pattern", "firstname.lastname")
+        email = outreach_mod.generate_email(first, last, domain, pattern)
+    cid = hashlib.md5(email.encode()).hexdigest()[:12]
+    contact = {
+        "id": cid,
+        "name": f"{first} {last}".strip(),
+        "first_name": first,
+        "last_name": last,
+        "title": body.get("title", ""),
+        "company": company,
+        "email": email,
+        "linkedin_url": body.get("linkedin_url", ""),
+        "email_pattern": body.get("email_pattern", ""),
+        "status": "new",
+        "scraped_at": datetime.utcnow().isoformat(),
+    }
+    outreach_mod.save_contacts([contact])
+    return contact
+
+
+@app.get("/api/outreach/templates")
+def get_outreach_templates():
+    return outreach_mod.get_templates()
+
+
+@app.post("/api/outreach/templates")
+def save_outreach_template(req: OutreachTemplateRequest):
+    tid = outreach_mod.save_template(req.name, req.subject, req.body)
+    return {"id": tid, "ok": True}
+
+
+@app.delete("/api/outreach/templates/{template_id}")
+def delete_outreach_template(template_id: int):
+    outreach_mod.delete_template(template_id)
+    return {"ok": True}
+
+
+class GenerateTemplateRequest(BaseModel):
+    context: str          # e.g. "targeting DeFi protocol engineering managers"
+    tone: str = "professional"   # professional | casual | direct
+
+
+@app.post("/api/outreach/templates/generate")
+def generate_outreach_template(body: GenerateTemplateRequest):
+    """Use local Ollama LLM to draft a cold-email template."""
+    import json as _json, re as _re
+
+    prompt = f"""You are writing a cold outreach email template for a job seeker.
+
+CONTEXT: {body.context}
+TONE: {body.tone}
+
+The sender is a full-stack engineer specialising in AI agents (LangChain, LangGraph) and Web3/DeFi (Solidity, EVM, Arbitrum). They have shipped production RAG pipelines, autonomous trading agents, and smart contract integrations.
+
+Generate ONE concise cold email. Rules:
+- Subject: punchy, specific, max 10 words. Avoid generic openers like "Quick question".
+- Body: 3–5 sentences. Open with a specific observation about their work or company. State one relevant thing the sender built. Close with a soft CTA ("Would you be open to a 15-min chat?").
+- Use these template variables where natural: {{{{first_name}}}}, {{{{company}}}}, {{{{title}}}}, {{{{sender_name}}}}
+- Sign off with "Best,\\n{{{{sender_name}}}}"
+
+Return ONLY a raw JSON object — no markdown fences, no explanation:
+{{"subject": "...", "body": "..."}}"""
+
+    raw = llm.chat(prompt, max_tokens=700, temperature=0.75)
+
+    # Extract the first {...} block from the response
+    match = _re.search(r'\{.*\}', raw, _re.DOTALL)
+    if not match:
+        raise HTTPException(status_code=500, detail=f"LLM returned non-JSON: {raw[:300]}")
+    try:
+        data = _json.loads(match.group())
+        return {"subject": data["subject"], "body": data["body"]}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"JSON parse failed: {exc} — raw: {raw[:300]}")
+
+
+@app.post("/api/outreach/send")
+async def send_outreach_bulk(req: SendBulkRequest):
+    """Send emails to selected contacts. Runs in background thread (blocking SMTP)."""
+    result = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: outreach_mod.send_bulk(
+            contact_ids=req.contact_ids,
+            template_id=req.template_id,
+            smtp_config={
+                "host": req.smtp_host,
+                "port": req.smtp_port,
+                "user": req.smtp_user,
+                "password": req.smtp_password,
+            },
+            sender_name=req.sender_name,
+            delay_seconds=req.delay_seconds,
+        )
+    )
+    return result
+
+
+@app.post("/api/outreach/preview")
+def preview_outreach_email(body: dict):
+    """Render a template against a sample contact."""
+    tpls = {t["id"]: t for t in outreach_mod.get_templates()}
+    tpl = tpls.get(body.get("template_id"))
+    if not tpl:
+        raise HTTPException(404, "Template not found")
+    sample = {
+        "name": "Alex Johnson",
+        "first_name": "Alex",
+        "last_name": "Johnson",
+        "company": body.get("company", "Stripe"),
+        "title": "Engineering Manager",
+    }
+    return {
+        "subject": outreach_mod.render_template(tpl["subject"], sample, body.get("sender_name", "You")),
+        "body": outreach_mod.render_template(tpl["body"], sample, body.get("sender_name", "You")),
+    }
+
+
+# Mount /assets and SPA catch-all must come AFTER all API routes so that
+# FastAPI matches specific routes first (routes are evaluated in order).
+if FRONTEND_DIST.exists():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=str(FRONTEND_DIST / "assets")),
+        name="assets",
+    )
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        return FileResponse(str(FRONTEND_DIST / "index.html"))

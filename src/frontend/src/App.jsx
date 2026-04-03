@@ -6,6 +6,7 @@ import Journal from "./pages/Journal.jsx";
 import Config from "./pages/Config.jsx";
 import Funded from "./pages/Funded.jsx";
 import InterviewPrep from "./pages/InterviewPrep.jsx";
+import Outreach from "./pages/Outreach.jsx";
 
 function Layout({ children }) {
   const linkClass = ({ isActive }) =>
@@ -40,6 +41,9 @@ function Layout({ children }) {
             </NavLink>
             <NavLink to="/interview" className={linkClass}>
               Interview
+            </NavLink>
+            <NavLink to="/outreach" className={linkClass}>
+              Outreach
             </NavLink>
             <NavLink to="/config" className={linkClass}>
               Config
@@ -100,6 +104,14 @@ export default function App() {
         element={
           <Layout>
             <InterviewPrep />
+          </Layout>
+        }
+      />
+      <Route
+        path="/outreach"
+        element={
+          <Layout>
+            <Outreach />
           </Layout>
         }
       />

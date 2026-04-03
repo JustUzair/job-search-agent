@@ -17,4 +17,7 @@ services:
     environment:
       - DB_PATH=/app/data/jobs.db
       - RESUME_DIR=/app/resume
+      - SERPER_API_KEY=${SERPER_API_KEY}
+      - SCRAPERAPI_KEY=${SCRAPERAPI_KEY}
+      - HUNTER_API_KEY=${HUNTER_API_KEY}
     command: uvicorn src.backend.main:app --host 0.0.0.0 --port 8000 --reload
