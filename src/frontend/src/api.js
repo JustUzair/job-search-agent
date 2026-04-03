@@ -142,6 +142,20 @@ export function answerInterviewQuestions(jd, questions) {
   return request("POST", "/interview/answer", { jd, questions });
 }
 
-export function getDdgSearchLog() {
-  return request("GET", "/ddg-search-log");
+// export function getDdgSearchLog() {
+//   return request("GET", "/ddg-search-log");
+// }
+
+// ── Batch Scoring (local LLM, resumable) ──────────────────────────────────────
+
+export function startBatchScore() {
+  return request("POST", "/batch-score/start", {});
+}
+
+export function stopBatchScore() {
+  return request("POST", "/batch-score/stop", {});
+}
+
+export function getBatchScoreStatus() {
+  return request("GET", "/batch-score/status");
 }

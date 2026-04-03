@@ -20,10 +20,10 @@ DEFAULT_CONFIG = {
     # Format: "<keywords> site:<ats-domain>"  (no https://)
     # Each keyword in config.keywords gets combined with each site to form a search.
     "site_search_queries": [
-        "fullstack remote site:jobs.ashbyhq.com",
-        "backend remote site:jobs.workable.com",
-        "fullstack remote site:job-boards.greenhouse.io",
-        "backend remote site:jobs.lever.co",
+        'fullstack remote site:jobs.ashbyhq.com',
+        'backend remote site:jobs.workable.com',
+        'fullstack remote site:job-boards.greenhouse.io',
+        'backend remote site:jobs.lever.co',
     ],
         "skip_title_patterns": [
         "marketing manager", "content writer", "content strategist", "seo specialist",
@@ -608,7 +608,13 @@ def _ensure_ddg_search_log(conn):
 
 
 def ddg_search_done_today(query: str) -> bool:
-    """Return True if this exact query was already searched today (IST date)."""
+    """
+    Return True only if this query was already searched today AND returned
+    at least 1 result.
+
+    A zero-result entry means the search failed (network block, timeout, etc.)
+    and must be retried — we never consider a failed search as "done".
+    """
     import hashlib
     from datetime import datetime, timezone, timedelta
     IST = timezone(timedelta(hours=5, minutes=30))
@@ -617,12 +623,16 @@ def ddg_search_done_today(query: str) -> bool:
     conn = get_conn()
     _ensure_ddg_search_log(conn)
     row = conn.execute(
-        "SELECT searched_at FROM ddg_search_log WHERE id = ?", (qid,)
+        "SELECT searched_at, results_count FROM ddg_search_log WHERE id = ?",
+        (qid,),
     ).fetchone()
     conn.close()
     if not row:
         return False
-    return (row[0] or "")[:10] == today
+    # Only skip if: searched today AND found real results
+    searched_today = str(row["searched_at"] or "")[:10] == today
+    had_results = (row["results_count"] or 0) > 0
+    return searched_today and had_results
 
 
 def log_ddg_search(query: str, results_count: int):
@@ -652,3 +662,67 @@ def get_ddg_search_log(limit: int = 100) -> list:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+def get_unscored_jobs() -> list:
+    """Return full job rows for all jobs with status='unscored'."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM jobs WHERE status = 'unscored' ORDER BY found_at ASC"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+def _ddg_search(query: str, max_results: int = 30) -> list:
+    """
+    Query DuckDuckGo and return a list of result URLs.
+
+    Strategy:
+      1. Try the `duckduckgo-search` (DDGS) library — uses a different endpoint
+         that is not blocked by Docker/datacenter IP ranges.
+      2. Fall back to raw HTML scrape of html.duckduckgo.com if DDGS fails.
+         (This path is the one that times out from Docker — kept as last resort.)
+
+    The raw HTML endpoint produces ConnectTimeoutError inside Docker because
+    DuckDuckGo blocks datacenter IPs at the TCP level.  This is NOT an HTTP
+    rate-limit (429) — there is no Retry-After header.  Switching to DDGS
+    fixes it for most deployments; the fallback handles edge cases.
+    """
+    # ── Attempt 1: duckduckgo-search library ─────────────────────────────────
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS(timeout=15) as ddgs:
+            results = list(ddgs.text(query, max_results=max_results))
+        urls = [r["href"] for r in results if r.get("href", "").startswith("http")]
+        if urls:
+            return urls
+    except Exception as e:
+        print(f"[ddg_search] DDGS library error (falling back to raw HTML): {e}")
+
+    # ── Attempt 2: raw HTML fallback ─────────────────────────────────────────
+    for attempt in range(2):
+        try:
+            r = requests.get(
+                "https://html.duckduckgo.com/html/",
+                params={"q": query},
+                headers={**HEADERS, "Accept-Language": "en-US,en;q=0.9"},
+                timeout=10,
+            )
+            soup = BeautifulSoup(r.text, "html.parser")
+            urls = []
+            for a in soup.select("a.result__a"):
+                href = a.get("href", "")
+                if "uddg=" in href:
+                    import urllib.parse
+                    parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
+                    href = parsed.get("uddg", [href])[0]
+                if href.startswith("http") and href not in urls:
+                    urls.append(href)
+                if len(urls) >= max_results:
+                    break
+            return urls
+        except Exception as e:
+            if attempt == 0:
+                time.sleep(3)   # brief back-off before retry
+            else:
+                print(f"[ddg_search] query={query!r} error: {e}")
+    return []

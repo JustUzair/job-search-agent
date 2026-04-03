@@ -462,40 +462,42 @@ def scrape_dropstab():
     return jobs
 
 
-def _find_careers(company_name):
-    """Try to find a careers/jobs page for the company via DuckDuckGo."""
-    CAREERS_DOMAINS = ["lever.co", "greenhouse.io", "ashbyhq.com", "workable.com",
-                       "jobs.ashbyhq", "boards.greenhouse", "apply.workable","jobs.solana.com","jobstash.xyz"]
+def _find_careers(company_name: str) -> str:
+    """Try to find a careers/jobs page for the company via Bing search."""
+    CAREERS_DOMAINS = [
+        "lever.co", "greenhouse.io", "ashbyhq.com", "workable.com",
+        "jobs.ashbyhq", "boards.greenhouse", "apply.workable",
+        "jobs.solana.com", "jobstash.xyz",
+    ]
+    query = _sanitize_query(f'"{company_name}" jobs careers')
     try:
-        q = f'"{company_name}" jobs careers'
         r = requests.get(
-            "https://html.duckduckgo.com/html/",
-            params={"q": q},
-            headers={**HEADERS, "Accept-Language": "en-US,en;q=0.9"},
-            timeout=10,
+            "https://www.bing.com/search",
+            params={"q": query, "first": 1},
+            headers={
+                **HEADERS,
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en-US,en;q=0.9",
+                "Referer": "https://www.bing.com/",
+            },
+            timeout=12,
         )
         soup = BeautifulSoup(r.text, "html.parser")
-        # DuckDuckGo HTML results: anchors with class result__a hold the actual href
-        for a in soup.select("a.result__a"):
+        for li in soup.select("li.b_algo"):
+            a = li.select_one("h2 > a") or li.select_one("a[href]")
+            if not a:
+                continue
             href = a.get("href", "")
-            # DDG wraps URLs, unwrap if needed
-            if "uddg=" in href:
-                import urllib.parse
-                parsed = urllib.parse.parse_qs(urllib.parse.urlparse(href).query)
-                href = parsed.get("uddg", [href])[0]
             lo = href.lower()
             if any(d in lo for d in CAREERS_DOMAINS):
                 return href[:300]
             if any(kw in lo for kw in ["/careers", "/jobs", "career"]):
-                # Make sure it's plausibly related to the company
-                slug = re.sub(r'[^a-z0-9]', '', company_name.lower())[:12]
-                if slug and slug in re.sub(r'[^a-z0-9]', '', lo):
+                slug = re.sub(r"[^a-z0-9]", "", company_name.lower())[:12]
+                if slug and slug in re.sub(r"[^a-z0-9]", "", lo):
                     return href[:300]
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[find_careers] {company_name!r}: {e}")
     return ""
-
-
 # ── Filtering ─────────────────────────────────────────────────────────────────
 
 def passes_filters(job: dict, cfg: dict) -> bool:
@@ -634,19 +636,92 @@ _ATS_META = {
 }
 
 
+def _sanitize_query(query: str) -> str:
+    """
+    Normalize a search query before sending it to any search engine.
+
+    Fixes:
+    - Curly/smart quotes ("web3") → straight quotes ("web3")
+      These appear when queries are copy-pasted from Word/browser into the Config UI
+      and cause URL double-encoding failures.
+    - Strips leading/trailing whitespace.
+    """
+    # Replace Unicode left/right double quotation marks with ASCII double quote
+    query = query.replace("\u201c", '"').replace("\u201d", '"')
+    # Replace Unicode left/right single quotation marks with ASCII apostrophe
+    query = query.replace("\u2018", "'").replace("\u2019", "'")
+    return query.strip()
+
+
 def _ddg_search(query: str, max_results: int = 30) -> list:
     """
-    Query DuckDuckGo HTML search and return a list of result URLs.
-    DDG HTML endpoint: https://html.duckduckgo.com/html/?q=QUERY
-    Results are in <a class="result__a"> tags, with the real URL in href
-    (sometimes wrapped in a DDG redirect that contains uddg= param).
+    Search for job URLs using Bing HTML (primary) with a raw DDG fallback.
+
+    WHY BING:
+      DuckDuckGo blocks all datacenter/Docker IP ranges at the TCP layer —
+      the SYN packet never receives a response regardless of library used.
+      Bing does not apply the same blanket block to Docker containers.
+
+    BING RESULT FORMAT:
+      Results are in <li class="b_algo"> elements.
+      The primary link is the first <a href="..."> inside each result.
+      Bing never wraps URLs in a redirect, so hrefs are direct.
+
+    FALLBACK:
+      Raw html.duckduckgo.com is kept as last resort. It will timeout from
+      most Docker deployments but may work if the host IP is not blocked.
     """
+    query = _sanitize_query(query)
+
+    # ── Primary: Bing HTML ────────────────────────────────────────────────────
+    try:
+        bing_urls = []
+        # Bing paginates with first=1, first=11, first=21, …
+        for first in range(1, max(2, (max_results // 10) + 1) * 10, 10):
+            r = requests.get(
+                "https://www.bing.com/search",
+                params={"q": query, "first": first},
+                headers={
+                    **HEADERS,
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Referer": "https://www.bing.com/",
+                },
+                timeout=15,
+            )
+            if r.status_code != 200:
+                break
+            soup = BeautifulSoup(r.text, "html.parser")
+            found_on_page = 0
+            for li in soup.select("li.b_algo"):
+                a = li.select_one("h2 > a") or li.select_one("a[href]")
+                if not a:
+                    continue
+                href = a.get("href", "")
+                if href.startswith("http") and href not in bing_urls:
+                    bing_urls.append(href)
+                    found_on_page += 1
+                if len(bing_urls) >= max_results:
+                    break
+            if found_on_page == 0 or len(bing_urls) >= max_results:
+                break
+            time.sleep(1)   # polite inter-page delay
+
+        if bing_urls:
+            return bing_urls
+        print(f"[search] Bing returned 0 results for {query!r}, trying fallback")
+    except Exception as e:
+        print(f"[search] Bing error for {query!r}: {e}, trying fallback")
+
+    # ── Fallback: raw DuckDuckGo HTML ────────────────────────────────────────
+    # NOTE: This times out from most Docker/VPS hosts (TCP-level block).
+    #       Kept here only for cases where Bing is unreachable.
     try:
         r = requests.get(
             "https://html.duckduckgo.com/html/",
             params={"q": query},
             headers={**HEADERS, "Accept-Language": "en-US,en;q=0.9"},
-            timeout=12,
+            timeout=10,
         )
         soup = BeautifulSoup(r.text, "html.parser")
         urls = []
@@ -662,8 +737,9 @@ def _ddg_search(query: str, max_results: int = 30) -> list:
                 break
         return urls
     except Exception as e:
-        print(f"[ddg_search] query={query!r} error: {e}")
-        return []
+        print(f"[search] DDG fallback also failed for {query!r}: {e}")
+
+    return []
 
 
 def _fetch_job_page(url: str) -> dict:
@@ -809,8 +885,8 @@ def run_scrape(sources=None):
         j = scrape_dropstab(); print(f"  dropstab: {len(j)}"); raw += j
     if "ats" in active:
         j = sources_ats.scrape_ats(); print(f"  ats: {len(j)}"); raw += j
-    if "ddg_site_search" in active:
-        j = scrape_ddg_site_search(); print(f"  ddg_site_search: {len(j)}"); raw += j
+    # if "ddg_site_search" in active:
+    #     j = scrape_ddg_site_search(); print(f"  ddg_site_search: {len(j)}"); raw += j
 
     # 1. Title pre-filter — cheapest check, runs before everything else
     title_passed = [j for j in raw if passes_title_filter(j.get("title", ""), skip_titles)]

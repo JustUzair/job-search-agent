@@ -274,7 +274,7 @@ export default function Config() {
           onChange={v => update("exclude_locations", v)}
         />
 
-        <div>
+        {/* <div>
           <label className="block text-sm text-slate-400 mb-1">
             DDG Site-Search Queries
             <span className="text-slate-500 ml-1 text-xs">
@@ -293,7 +293,7 @@ export default function Config() {
             values={cfg.site_search_queries || []}
             onChange={v => update("site_search_queries", v)}
           />
-        </div>
+        </div> */}
       </div>
 
       <div className="mt-6 flex items-center gap-3">

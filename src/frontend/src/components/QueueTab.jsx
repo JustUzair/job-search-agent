@@ -7,6 +7,9 @@ import {
   getScrapeStatus,
   getBatches,
   pollBatches,
+  startBatchScore,
+  stopBatchScore,
+  getBatchScoreStatus,
 } from "../api.js";
 import TailorModal from "./TailorModal.jsx";
 import JobDetailModal from "./JobDetailModal.jsx";
@@ -38,6 +41,153 @@ export function WorkTypeBadge({ type }) {
     </span>
   );
 }
+
+// ── Batch Score Control ───────────────────────────────────────────────────────
+
+/**
+ * BatchScoreControl
+ *
+ * Shows a Start / Stop button for the local-LLM batch scoring loop.
+ * The backend scores jobs with status='unscored' one at a time and writes
+ * results immediately, so stopping mid-run loses nothing — the next Start
+ * picks up from exactly where the DB left off.
+ *
+ * Props:
+ *   onScored — called when a scoring run finishes so the job list can refresh
+ */
+function BatchScoreControl({ onScored }) {
+  const [state, setState] = useState(null); // null = not yet loaded
+  const [busy, setBusy] = useState(false); // button action in flight
+
+  const refresh = useCallback(async () => {
+    try {
+      const s = await getBatchScoreStatus();
+      setState(s);
+    } catch (_) {}
+  }, []);
+
+  // Initial load
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // Poll while running
+  useEffect(() => {
+    if (!state?.running) return;
+    const id = setInterval(async () => {
+      await refresh();
+      // If it just stopped, tell parent to refresh job list
+      setState(prev => {
+        if (prev?.running === false) onScored?.();
+        return prev;
+      });
+    }, 2500);
+    return () => clearInterval(id);
+  }, [state?.running, refresh, onScored]);
+
+  // When run completes, refresh job list once
+  const prevRunning = state?.running;
+  useEffect(() => {
+    if (prevRunning === false && state?.done > 0) onScored?.();
+  }, [prevRunning]);
+
+  const handleStart = async () => {
+    setBusy(true);
+    try {
+      await startBatchScore();
+      await refresh();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStop = async () => {
+    setBusy(true);
+    try {
+      await stopBatchScore();
+      await refresh();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pendingInDb = state?.pending_in_db ?? 0;
+  const isRunning = state?.running ?? false;
+
+  // Progress bar width
+  const pct =
+    isRunning && state?.total > 0
+      ? Math.round((state.done / state.total) * 100)
+      : 0;
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      {/* Button */}
+      {isRunning ? (
+        <button
+          onClick={handleStop}
+          disabled={busy}
+          className="px-4 py-2 bg-red-700 hover:bg-red-600 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm rounded font-medium transition-colors whitespace-nowrap"
+        >
+          {busy ? "⟳ Stopping..." : "⏹ Stop Scoring"}
+        </button>
+      ) : (
+        <button
+          onClick={handleStart}
+          disabled={busy || pendingInDb === 0}
+          title={
+            pendingInDb === 0
+              ? "No unscored jobs in DB"
+              : `Score ${pendingInDb} unscored jobs`
+          }
+          className="px-4 py-2 bg-violet-700 hover:bg-violet-600 disabled:bg-slate-600 disabled:cursor-not-allowed text-white text-sm rounded font-medium transition-colors whitespace-nowrap"
+        >
+          {busy ? "⟳ Starting..." : "🧠 Batch Score"}
+        </button>
+      )}
+
+      {/* Status text + progress */}
+      {state && (
+        <div className="flex flex-col gap-1 min-w-0">
+          {isRunning ? (
+            <>
+              <span className="text-xs text-violet-300 whitespace-nowrap">
+                Scoring {state.done} / {state.total}…
+              </span>
+              {/* Progress bar */}
+              <div className="w-40 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-violet-500 transition-all duration-500"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </>
+          ) : pendingInDb > 0 ? (
+            <span className="text-xs text-slate-400 whitespace-nowrap">
+              {pendingInDb} unscored
+              {state.stopped_at && state.done > 0 && (
+                <span className="text-slate-500">
+                  {" "}
+                  · last run scored {state.done}
+                </span>
+              )}
+            </span>
+          ) : state.done > 0 ? (
+            <span className="text-xs text-emerald-400/70 whitespace-nowrap">
+              ✓ All scored ({state.done} this run)
+            </span>
+          ) : null}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Job Card ──────────────────────────────────────────────────────────────────
 
 function JobCard({ job, onSkip, onTailor, onClick }) {
   const isUnscored = job.score === 0 && job.status === "unscored";
@@ -135,6 +285,8 @@ function JobCard({ job, onSkip, onTailor, onClick }) {
   );
 }
 
+// ── Page jumper ───────────────────────────────────────────────────────────────
+
 function PageJumper({ page, totalPages, onPageChange }) {
   const [draft, setDraft] = useState(String(page + 1));
 
@@ -144,11 +296,8 @@ function PageJumper({ page, totalPages, onPageChange }) {
 
   const commit = () => {
     const n = parseInt(draft, 10);
-    if (!isNaN(n) && n >= 1 && n <= totalPages) {
-      onPageChange(n - 1);
-    } else {
-      setDraft(String(page + 1));
-    }
+    if (!isNaN(n) && n >= 1 && n <= totalPages) onPageChange(n - 1);
+    else setDraft(String(page + 1));
   };
 
   return (
@@ -185,6 +334,8 @@ function PageJumper({ page, totalPages, onPageChange }) {
   );
 }
 
+// ── Main QueueTab ─────────────────────────────────────────────────────────────
+
 const LIMIT = 20;
 
 export default function QueueTab() {
@@ -217,7 +368,6 @@ export default function QueueTab() {
     try {
       setLoading(true);
       setError(null);
-      // "new,unscored" — scored jobs (score>0) float to top via ORDER BY score DESC
       const data = await getJobs("new,unscored", LIMIT, page * LIMIT);
       setJobs(Array.isArray(data) ? data : data.jobs || []);
       setTotal(data.total || (Array.isArray(data) ? data.length : 0));
@@ -309,12 +459,14 @@ export default function QueueTab() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-4">
+      {/* ── Top bar: Scrape + Batch Score ───────────────────────────────── */}
+      <div className="flex items-start justify-between gap-4 mb-4 flex-wrap">
+        {/* Left: last run info + score counters */}
+        <div className="flex items-center gap-4 flex-wrap">
           <div className="text-sm text-slate-400">
             {scrapeStatus?.last_run && (
               <span>
-                Last run: {new Date(scrapeStatus.last_run).toLocaleString()}
+                Last scrape: {new Date(scrapeStatus.last_run).toLocaleString()}
               </span>
             )}
           </div>
@@ -334,13 +486,23 @@ export default function QueueTab() {
             </div>
           )}
         </div>
-        <button
-          onClick={handleScrape}
-          disabled={scraping}
-          className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white text-sm rounded font-medium transition-colors"
-        >
-          {scraping ? "⟳ Scraping..." : "⚡ Scrape Now"}
-        </button>
+
+        {/* Right: action buttons */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <BatchScoreControl
+            onScored={() => {
+              setPage(0);
+              fetchJobs();
+            }}
+          />
+          <button
+            onClick={handleScrape}
+            disabled={scraping}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white text-sm rounded font-medium transition-colors"
+          >
+            {scraping ? "⟳ Scraping..." : "⚡ Scrape Now"}
+          </button>
+        </div>
       </div>
 
       {error && (
