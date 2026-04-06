@@ -52,9 +52,9 @@ export default function InterviewPrep() {
   // Parse comma-separated or newline-separated questions
   const parseQuestions = raw =>
     raw
-      .split(/\n|,(?=\s*[A-Z])/) // split on newline or comma followed by capital
-      .map(q => q.trim())
-      .filter(Boolean);
+      .split(";") // Split ONLY on commas
+      .map(q => q.replace(/\s+/g, " ").trim()) // Replace all newlines/tabs/extra spaces with a single space
+      .filter(Boolean); // Remove empty strings
 
   const handleSubmit = async () => {
     const questions = parseQuestions(questionsRaw);
@@ -129,7 +129,7 @@ export default function InterviewPrep() {
           <label className="block text-sm text-slate-400 mb-1">
             Hiring-Page Questions
             <span className="text-slate-500 ml-1">
-              — one per line, or comma-separated
+              — separated by semi-colons {"(;)"}
               {questionCount > 0 && (
                 <span className="text-emerald-400 ml-2">
                   {questionCount} question{questionCount !== 1 ? "s" : ""}
