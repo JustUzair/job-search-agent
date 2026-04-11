@@ -869,7 +869,7 @@ def scrape_ddg_site_search(max_combos_per_run: int = 20) -> list:
 def run_scrape(sources=None):
     db.init_db()
     cfg = db.get_config()
-    active = sources or ["hn_jobs", "hn_jobs_page", "web3career", "cryptorank", "dropstab", "ats", "ddg_site_search"]
+    active = sources or ["hn_jobs", "hn_jobs_page", "web3career", "cryptorank", "dropstab", "ats", "ddg_site_search", "jobstash", "solana_jobs"]
     skip_titles = cfg.get("skip_title_patterns", [])
     raw = []
 
@@ -885,6 +885,10 @@ def run_scrape(sources=None):
         j = scrape_dropstab(); print(f"  dropstab: {len(j)}"); raw += j
     if "ats" in active:
         j = sources_ats.scrape_ats(); print(f"  ats: {len(j)}"); raw += j
+    if "jobstash" in active:
+        j = scrape_jobstash(); print(f"  jobstash: {len(j)}"); raw += j
+    if "solana_jobs" in active:
+        j = scrape_solana_jobs(); print(f"  solana_jobs: {len(j)}"); raw += j
     # if "ddg_site_search" in active:
     #     j = scrape_ddg_site_search(); print(f"  ddg_site_search: {len(j)}"); raw += j
 
@@ -969,3 +973,308 @@ def run_scrape(sources=None):
     if batch_info:
         result["batch"] = batch_info
     return result
+
+# ── jobstash.xyz ──────────────────────────────────────────────────────────────
+
+def scrape_jobstash(max_pages: int = 5) -> list:
+    """Scrape jobstash.xyz — tries the public JSON API first, falls back to Playwright.
+
+    API endpoint (unofficial but stable):
+      GET https://api.jobstash.xyz/api/v1/jobs/list?page=N&limit=50
+    Response shape:
+      { "data": [ { "id", "title", "url", "organization": { "name" }, 
+                    "tags": [...], "salary", "location", "timestamp" } ] }
+
+    If the API shape changes, the Playwright fallback renders the /jobs page and
+    picks job cards via [data-testid="job-card"] or the <article> selector that
+    jobstash uses in its Next.js build.
+    """
+    jobs = []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+
+    # ── Primary: JSON API ─────────────────────────────────────────────────────
+    try:
+        for page in range(1, max_pages + 1):
+            r = requests.get(
+                "https://api.jobstash.xyz/api/v1/jobs/list",
+                params={"page": page, "limit": 50},
+                headers={**HEADERS, "Accept": "application/json"},
+                timeout=15,
+            )
+            if r.status_code != 200:
+                print(f"[jobstash] API page {page} → HTTP {r.status_code}, stopping")
+                break
+
+            payload = r.json()
+            # Accept both {"data": [...]} and a bare list at root
+            items = payload.get("data") or payload if isinstance(payload, list) else []
+            if not items:
+                break  # no more pages
+
+            new_on_page = 0
+            for item in items:
+                # Skip old postings
+                ts = item.get("timestamp") or item.get("createdAt") or ""
+                posted_at = ts[:10] if ts else ""
+                if ts:
+                    try:
+                        job_date = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        if job_date.tzinfo is None:
+                            job_date = job_date.replace(tzinfo=timezone.utc)
+                        if job_date < cutoff:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
+                title   = (item.get("title") or "")[:200]
+                company = (item.get("organization", {}) or {}).get("name", "") or _first_word(title)
+                url     = item.get("url") or item.get("jobstashUrl") or ""
+                if not url:
+                    slug = item.get("shortUUID") or item.get("id") or ""
+                    url  = f"https://jobstash.xyz/jobs/{slug}" if slug else ""
+
+                if not title or not url:
+                    continue
+
+                # Tags become part of the description for keyword matching
+                tags = " ".join(
+                    t.get("name", t) if isinstance(t, dict) else str(t)
+                    for t in (item.get("tags") or [])
+                )
+                location    = item.get("location") or detect_location(tags)
+                description = f"{title} {tags}".strip()
+
+                uid = _uid("js", url)
+                if db.job_exists(uid):
+                    continue
+
+                jobs.append(dict(
+                    id=uid, source="jobstash", title=title,
+                    company=company[:80], url=url,
+                    description=description,
+                    work_type=detect_work_type(description),
+                    location=location[:60],
+                    posted_at=posted_at,
+                ))
+                new_on_page += 1
+
+            if new_on_page == 0:
+                break  # hit the already-seen horizon
+            time.sleep(1)
+
+        if jobs:
+            print(f"  jobstash (API): {len(jobs)} jobs")
+            return jobs
+        print("[jobstash] API returned no usable jobs — trying Playwright fallback")
+
+    except Exception as e:
+        print(f"[jobstash] API error: {e} — trying Playwright fallback")
+
+    # ── Fallback: Playwright (JS render) ─────────────────────────────────────
+    # jobstash is a Next.js app; cards live inside <article> elements or elements
+    # with data-testid="job-card". The <a href="/jobs/..."> inside each card has
+    # the job slug. Title is in the first <h2> or <h3> inside the card.
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page_ctx = browser.new_page(user_agent=HEADERS["User-Agent"])
+
+            for page_num in range(1, max_pages + 1):
+                url_page = f"https://jobstash.xyz/jobs?page={page_num}"
+                print(f"  jobstash Playwright page {page_num}...")
+                page_ctx.goto(url_page, timeout=30000)
+                page_ctx.wait_for_timeout(3500)
+                html = page_ctx.content()
+                soup = BeautifulSoup(html, "html.parser")
+
+                # jobstash uses <article> per job card or a wrapper div
+                cards = (
+                    soup.select("article[data-testid='job-card']") or
+                    soup.select("article") or
+                    soup.select("div[data-testid='job-card']") or
+                    soup.select("[class*='JobCard'], [class*='job-card']")
+                )
+                if not cards:
+                    break
+
+                new_on_page = 0
+                for card in cards:
+                    a_el = card.select_one("a[href*='/jobs/']")
+                    if not a_el:
+                        continue
+                    href = a_el.get("href", "")
+                    if not href.startswith("http"):
+                        href = "https://jobstash.xyz" + href
+
+                    title_el = card.select_one("h2, h3, [class*='title']")
+                    title    = (title_el.get_text(strip=True) if title_el else "")[:200]
+                    if not title:
+                        continue
+
+                    company_el = card.select_one("[class*='company'], [class*='org']")
+                    company    = (company_el.get_text(strip=True) if company_el else _first_word(title))[:80]
+
+                    description = card.get_text(" ", strip=True)[:2000]
+
+                    uid = _uid("js", href)
+                    if db.job_exists(uid):
+                        continue
+
+                    jobs.append(dict(
+                        id=uid, source="jobstash", title=title,
+                        company=company, url=href,
+                        description=description,
+                        work_type=detect_work_type(description),
+                        location=detect_location(description),
+                        posted_at="",
+                    ))
+                    new_on_page += 1
+
+                if new_on_page == 0:
+                    break
+            browser.close()
+    except Exception as e:
+        print(f"[jobstash] Playwright fallback error: {e}")
+
+    print(f"  jobstash (Playwright): {len(jobs)} jobs")
+    return jobs
+
+
+# ── jobs.solana.com ───────────────────────────────────────────────────────────
+
+def scrape_solana_jobs() -> list:
+    """Scrape jobs.solana.com — a Greenhouse-backed board for the Solana ecosystem.
+
+    The public Greenhouse JSON API (no auth required):
+      GET https://boards-api.greenhouse.io/v1/boards/{board_token}/jobs?content=true
+    jobs.solana.com's Greenhouse board token is inferred from the page embed or from
+    the canonical Greenhouse URL (solana / solana-labs). We try both known tokens and
+    fall back to Playwright scraping the rendered iframe if neither works.
+
+    Greenhouse job shape:
+      { "id", "title", "absolute_url", "location": { "name" },
+        "updated_at", "content" (HTML description) }
+    """
+    jobs = []
+    cutoff = datetime.now(timezone.utc) - timedelta(days=60)  # Solana jobs stay up longer
+
+    # Known Greenhouse board slugs for solana.com ecosystem
+    GREENHOUSE_TOKENS = ["solana", "solanalabs", "solana-foundation"]
+
+    # ── Primary: Greenhouse JSON API ─────────────────────────────────────────
+    found_via_api = False
+    for token in GREENHOUSE_TOKENS:
+        try:
+            r = requests.get(
+                f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs",
+                params={"content": "true"},
+                headers={**HEADERS, "Accept": "application/json"},
+                timeout=15,
+            )
+            if r.status_code != 200:
+                continue  # try next token
+
+            items = r.json().get("jobs", [])
+            if not items:
+                continue
+
+            found_via_api = True
+            for item in items:
+                ts = item.get("updated_at") or ""
+                posted_at = ts[:10] if ts else ""
+                if ts:
+                    try:
+                        job_date = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        if job_date.tzinfo is None:
+                            job_date = job_date.replace(tzinfo=timezone.utc)
+                        if job_date < cutoff:
+                            continue
+                    except (ValueError, TypeError):
+                        pass
+
+                title    = (item.get("title") or "")[:200]
+                url      = item.get("absolute_url") or ""
+                location = (item.get("location") or {}).get("name", "")[:60]
+                # Strip HTML tags from description
+                raw_html = item.get("content") or ""
+                description = BeautifulSoup(raw_html, "html.parser").get_text(" ", strip=True)[:3000]
+
+                if not title or not url:
+                    continue
+
+                uid = _uid("sol", url)
+                if db.job_exists(uid):
+                    continue
+
+                jobs.append(dict(
+                    id=uid, source="solana_jobs", title=title,
+                    company="Solana Foundation",
+                    url=url, description=description,
+                    work_type=detect_work_type(f"{title} {location} {description[:300]}"),
+                    location=location,
+                    posted_at=posted_at,
+                ))
+            break  # got results from this token, stop trying others
+
+        except Exception as e:
+            print(f"[solana_jobs] Greenhouse token {token!r} error: {e}")
+            continue
+
+    if found_via_api:
+        print(f"  solana_jobs (Greenhouse API): {len(jobs)} jobs")
+        return jobs
+
+    print("[solana_jobs] Greenhouse API failed — trying Playwright fallback")
+
+    # ── Fallback: Playwright (renders the iframe embed) ──────────────────────
+    # jobs.solana.com embeds a Greenhouse iframe or renders jobs server-side.
+    # Selector notes: Greenhouse renders a <div class="opening"> per job with
+    # an <a> (the title link) and a <span class="location">.
+    try:
+        from playwright.sync_api import sync_playwright
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page_ctx = browser.new_page(user_agent=HEADERS["User-Agent"])
+            page_ctx.goto("https://jobs.solana.com/jobs", timeout=30000)
+            page_ctx.wait_for_timeout(4000)
+            html = page_ctx.content()
+            browser.close()
+
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Greenhouse HTML board layout — each job is a .opening div
+        openings = (
+            soup.select("div.opening") or
+            soup.select("div[class*='job-post'], tr.job-post") or
+            soup.select("[class*='opening'], [class*='job-listing']")
+        )
+        for op in openings:
+            a = op.select_one("a[href]")
+            if not a:
+                continue
+            title = a.get_text(strip=True)[:200]
+            href  = a.get("href", "")
+            if not href.startswith("http"):
+                href = "https://jobs.solana.com" + href
+
+            loc_el   = op.select_one(".location, [class*='location']")
+            location = (loc_el.get_text(strip=True) if loc_el else "")[:60]
+
+            uid = _uid("sol", href)
+            if db.job_exists(uid):
+                continue
+
+            jobs.append(dict(
+                id=uid, source="solana_jobs", title=title,
+                company="Solana Foundation",
+                url=href, description=f"{title} {location}".strip(),
+                work_type=detect_work_type(f"{title} {location}"),
+                location=location,
+                posted_at="",
+            ))
+    except Exception as e:
+        print(f"[solana_jobs] Playwright fallback error: {e}")
+
+    print(f"  solana_jobs (Playwright): {len(jobs)} jobs")
+    return jobs

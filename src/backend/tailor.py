@@ -112,7 +112,7 @@ RULES:
 - Pick ONLY 3 best from the given professional experiences, the ones most relevant to the job description; remove or de-emphasize less relevant roles
 
 Respond with ONLY a JSON object: {{"sections/summary.tex": "...full content...", ...}}
-No markdown fences around the JSON. And DO NOT return invalid JSON or Unterminated string or anything that would break the JSON parsing on the client side."""
+No markdown fences around the JSON. And DO NOT return invalid JSON or Unterminated string or anything that would break the JSON parsing and lead to 422 error code or unprocessable entity, on the client side."""
 
     original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
     os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
