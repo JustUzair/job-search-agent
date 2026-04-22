@@ -356,6 +356,170 @@ function ScraperTab({ onScraped }) {
   );
 }
 
+// ─── Add Test Contacts Panel ──────────────────────────────────────────────────
+
+function AddTestContactsPanel({ onAdded }) {
+  const QUICK_CONTACTS = [
+    {
+      first_name: "Uzair",
+      last_name: "Saiyed",
+      email: "justuzairsaiyed@gmail.com",
+      company: "Test",
+      title: "Self (Test)",
+    },
+    {
+      first_name: "Uzair",
+      last_name: "Builder",
+      email: "justuzairbuilder@gmail.com",
+      company: "Test",
+      title: "Self (Test 2)",
+    },
+  ];
+
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({
+    first_name: "",
+    last_name: "",
+    email: "",
+    company: "Test",
+    title: "Test Contact",
+  });
+  const [status, setStatus] = useState("");
+
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+
+  async function addContact(contact) {
+    setStatus("Adding…");
+    try {
+      const resp = await fetch("/api/outreach/contacts/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(contact),
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      setStatus(`✓ Added ${contact.email}`);
+      onAdded();
+      setTimeout(() => setStatus(""), 3000);
+    } catch (e) {
+      setStatus(`✗ ${e.message}`);
+    }
+  }
+
+  async function addManual() {
+    if (!form.email || !form.first_name) {
+      setStatus("Email and first name required");
+      return;
+    }
+    await addContact({
+      ...form,
+      name: `${form.first_name} ${form.last_name}`.trim(),
+    });
+    setForm({
+      first_name: "",
+      last_name: "",
+      email: "",
+      company: "Test",
+      title: "Test Contact",
+    });
+  }
+
+  return (
+    <div className="bg-slate-800/60 border border-slate-700 rounded-lg">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-sm text-slate-300 hover:text-white transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <span className="text-emerald-400">＋</span>
+          <span className="font-medium">Add Test Contacts</span>
+          <span className="text-xs text-slate-500">
+            — insert your own emails to verify SMTP works
+          </span>
+        </span>
+        <span className="text-slate-500 text-xs">{open ? "▲" : "▼"}</span>
+      </button>
+
+      {open && (
+        <div className="border-t border-slate-700 px-4 pb-4 pt-3 space-y-4">
+          {/* Quick-add buttons */}
+          <div>
+            <p className="text-xs text-slate-400 mb-2 font-medium">
+              Quick add your test emails:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {QUICK_CONTACTS.map(c => (
+                <button
+                  key={c.email}
+                  onClick={() => addContact(c)}
+                  className="text-xs bg-slate-700 hover:bg-emerald-700 border border-slate-600 hover:border-emerald-500 text-slate-300 hover:text-white px-3 py-1.5 rounded transition-colors font-mono"
+                >
+                  + {c.email}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="border-t border-slate-700/60 pt-3">
+            <p className="text-xs text-slate-400 mb-2 font-medium">
+              Or add any email manually:
+            </p>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <input
+                className="bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                placeholder="First name"
+                value={form.first_name}
+                onChange={e => set("first_name", e.target.value)}
+              />
+              <input
+                className="bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                placeholder="Last name"
+                value={form.last_name}
+                onChange={e => set("last_name", e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <input
+                className="bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500 col-span-2"
+                placeholder="email@example.com"
+                value={form.email}
+                onChange={e => set("email", e.target.value)}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2 mb-3">
+              <input
+                className="bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                placeholder="Company"
+                value={form.company}
+                onChange={e => set("company", e.target.value)}
+              />
+              <input
+                className="bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+                placeholder="Title"
+                value={form.title}
+                onChange={e => set("title", e.target.value)}
+              />
+            </div>
+            <button
+              onClick={addManual}
+              className="text-xs bg-emerald-700 hover:bg-emerald-600 text-white px-4 py-1.5 rounded transition-colors"
+            >
+              Add Contact
+            </button>
+          </div>
+
+          {status && (
+            <p
+              className={`text-xs mt-1 ${status.startsWith("✓") ? "text-emerald-400" : status === "Adding…" ? "text-slate-400" : "text-red-400"}`}
+            >
+              {status}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Tab: Database ────────────────────────────────────────────────────────────
 
 function DatabaseTab({ refresh }) {
@@ -430,6 +594,9 @@ function DatabaseTab({ refresh }) {
 
   return (
     <div className="space-y-4">
+      {/* Test contact insertion */}
+      <AddTestContactsPanel onAdded={load} />
+
       {/* Stats */}
       <div className="flex gap-4 flex-wrap">
         {Object.entries(stats).map(([s, n]) => (
@@ -1032,6 +1199,75 @@ function SendTab({ refreshContacts }) {
       });
   }, [refreshContacts]);
 
+  const [testEmail, setTestEmail] = useState(
+    localStorage.getItem("smtp_test_email") || "",
+  );
+  const [testLoading, setTestLoading] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
+  async function sendTestEmail() {
+    if (!smtp.user || !smtp.password) {
+      setErr("SMTP credentials required");
+      return;
+    }
+    if (!testEmail) {
+      setErr("Enter a test recipient email");
+      return;
+    }
+    setErr("");
+    setTestLoading(true);
+    setTestResult(null);
+    localStorage.setItem("smtp_test_email", testEmail);
+
+    try {
+      // Add a temp contact for the test email
+      const parts = testEmail.split("@")[0].split(/[._]/);
+      const firstName = parts[0] || "Test";
+      const lastName = parts[1] || "User";
+      const addResp = await fetch("/api/outreach/contacts/add", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: firstName,
+          last_name: lastName,
+          email: testEmail,
+          company: "SMTP Test",
+          title: "Test",
+        }),
+      });
+      const contact = await addResp.json();
+
+      // Use first template if none selected
+      const tplId = selectedTemplate || templates[0]?.id;
+      if (!tplId) {
+        setErr("No template selected — create one first");
+        setTestLoading(false);
+        return;
+      }
+
+      const resp = await fetch("/api/outreach/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contact_ids: [contact.id],
+          template_id: Number(tplId),
+          smtp_host: smtp.host,
+          smtp_port: Number(smtp.port),
+          smtp_user: smtp.user,
+          smtp_password: smtp.password,
+          sender_name: smtp.sender_name || "OpenClaw Test",
+          delay_seconds: 0,
+        }),
+      });
+      const data = await resp.json();
+      setTestResult(data);
+    } catch (e) {
+      setTestResult({ sent: 0, failed: 1, errors: [e.message] });
+    } finally {
+      setTestLoading(false);
+    }
+  }
+
   async function send() {
     if (!smtp.user || !smtp.password) {
       setErr("SMTP credentials required");
@@ -1235,6 +1471,37 @@ function SendTab({ refreshContacts }) {
         </div>
 
         {err && <p className="text-red-400 text-xs">{err}</p>}
+
+        {/* SMTP Test fire */}
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-3 space-y-2">
+          <p className="text-xs font-medium text-slate-400">
+            🧪 Test SMTP first — send one email to verify credentials work
+          </p>
+          <div className="flex gap-2">
+            <input
+              className="flex-1 bg-slate-700 border border-slate-600 rounded px-3 py-1.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
+              placeholder="test@gmail.com"
+              value={testEmail}
+              onChange={e => setTestEmail(e.target.value)}
+            />
+            <button
+              onClick={sendTestEmail}
+              disabled={testLoading}
+              className="text-xs bg-slate-600 hover:bg-slate-500 disabled:opacity-50 text-white px-3 py-1.5 rounded transition-colors whitespace-nowrap"
+            >
+              {testLoading ? "Sending…" : "Send Test"}
+            </button>
+          </div>
+          {testResult && (
+            <p
+              className={`text-xs ${testResult.sent > 0 ? "text-emerald-400" : "text-red-400"}`}
+            >
+              {testResult.sent > 0
+                ? `✓ Test email delivered to ${testEmail} — SMTP is working!`
+                : `✗ Failed: ${testResult.errors?.[0] || "unknown error"}`}
+            </p>
+          )}
+        </div>
 
         {result && (
           <div

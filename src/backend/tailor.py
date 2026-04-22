@@ -17,7 +17,7 @@ RESUME_DIR = os.environ.get("RESUME_DIR", "/app/resume")
 RESUME_OUT_DIR = "/app/data/resumes"
 
 TAILOR_TARGETS = {
-    "sections/summary.tex",      # ← was summary.tex
+    "sections/summary.tex",      # <--- was summary.tex
     "sections/experience.tex",
     "sections/skills.tex",
     "sections/projects.tex",
@@ -31,6 +31,223 @@ COPY_ONLY = {
     "sections/security.tex",
 }
 
+
+
+def build_prompt(jd, title, company, files):
+    target_content = {k: v for k, v in files.items() if k in TAILOR_TARGETS}
+    files_block = "\n\n".join(
+        f"### FILE: {path}\n```latex\n{content}\n```"
+        for path, content in target_content.items()
+    )
+    return f"""You are a LaTeX resume editor. Your only output is a single raw JSON object. Nothing else.
+
+═══════════════════════════════════════════════════════
+TASK
+═══════════════════════════════════════════════════════
+Tailor the resume files below for this specific job opening.
+
+JOB TITLE : {title}
+COMPANY   : {company}
+
+JOB DESCRIPTION (first 1500 chars):
+{jd[:1500]}
+
+RESUME FILES TO EDIT:
+{files_block}
+
+═══════════════════════════════════════════════════════
+TAILORING RULES  (what to change)
+═══════════════════════════════════════════════════════
+1. sections/summary.tex  — Rewrite the summary to speak directly to this role.
+   Match tone and keywords from the JD. Do NOT invent experience that is not
+   already in the resume.
+
+2. sections/experience.tex  — Reorder bullet points so the most relevant
+   experience for this role appears first within each job block.
+   Do NOT change company names, job titles, or dates.
+   Do NOT add or remove entire job blocks.
+
+3. sections/skills.tex  — Reorder skill groups so the most relevant appear
+   first. Do NOT add skills not already in the file. Remove, add or deprioritise Web3 Skills if the JD is non-Web3, and vice versa.
+
+4. sections/projects.tex  — Pick EXACTLY 4 projects most relevant to this JD.
+   Remove the entire \\resumeProjectHeading block (heading + \\resumeItemListStart
+   ... \\resumeItemListEnd) for every project NOT in your top 4.
+   Do NOT edit the content of kept projects. Do NOT touch the \\section header
+   or surrounding \\vspace commands.
+
+5. sections/achievements.tex  — Reorder so most relevant achievements appear
+   first. Do NOT add or remove items.
+
+6. Only return files that you actually changed. If a file needs no changes,
+   omit it from the JSON entirely.
+
+═══════════════════════════════════════════════════════
+JSON FORMAT RULES  (read every rule — violations cause hard failures)
+═══════════════════════════════════════════════════════
+RULE 1 — OUTPUT ONLY JSON.
+  Your entire response must be a single JSON object.
+  No markdown code fences (no ```json or ```).
+  No preamble, no explanation, no trailing text after the closing brace.
+  First character of your response: {{
+  Last character of your response: }}
+
+RULE 2 — BACKSLASH ESCAPING.
+  Inside a JSON string, every single backslash MUST be written as two
+  backslashes. This applies to ALL LaTeX commands without exception.
+  WRONG : "\\textbf{{foo}}"
+  CORRECT: "\\\\textbf{{foo}}"
+  WRONG : "\\begin{{itemize}}"
+  CORRECT: "\\\\begin{{itemize}}"
+  WRONG : "\\item foo"
+  CORRECT: "\\\\item foo"
+  If you write a single backslash inside a JSON string, the parser will throw
+  a JSONDecodeError and your entire response will be rejected.
+
+RULE 3 — NEWLINES INSIDE STRINGS.
+  JSON string values cannot contain literal line breaks.
+  Every line break in the LaTeX source MUST be represented as the two-character
+  escape sequence: \\n
+  WRONG : "line one
+line two"
+  CORRECT: "line one\\nline two"
+
+RULE 4 — DOUBLE BRACES IN LATEX.
+  LaTeX uses {{}} for command arguments, e.g. \\textbf{{word}}, \\section{{Title}}.
+  These double braces are valid JSON string content. Do NOT change them.
+
+RULE 5 — NO TRUNCATION.
+  Every file you include in the JSON must contain the COMPLETE file content.
+  Never cut off mid-file. If you are running out of output space, remove a
+  file from the JSON entirely rather than returning it truncated.
+
+RULE 6 — VALID JSON ONLY.
+  Before finalising your response, mentally verify:
+  - Every opening {{ has a matching closing }}
+  - Every opening " has a matching closing "
+  - No trailing comma after the last key-value pair
+  - No unescaped control characters (tabs, newlines) inside string values
+
+RESPONSE SHAPE:
+{{
+  "sections/summary.tex": "...complete file content with all backslashes doubled and newlines as \\\\n...",
+  "sections/projects.tex": "...complete file content..."
+}}"""
+
+
+# ─── Replacement prompt string for apply_edits() ─────────────────────────────
+# Replace the prompt = f"""...""" block inside apply_edits() with this.
+
+APPLY_EDITS_PROMPT_TEMPLATE = """You are a LaTeX resume editor. Your only output is a single raw JSON object. Nothing else.
+
+═══════════════════════════════════════════════════════
+TASK
+═══════════════════════════════════════════════════════
+Apply the user's requested changes to the resume files below.
+
+USER INSTRUCTIONS:
+{instructions}
+
+RESUME FILES:
+{files_block}
+
+═══════════════════════════════════════════════════════
+EDITING RULES  (what you may and may not do)
+═══════════════════════════════════════════════════════
+1. Apply ONLY the changes the user explicitly requested. Nothing else.
+2. Do NOT invent skills, tools, or experience not already in the resume.
+3. Do NOT change company names, job titles, or dates.
+4. Do NOT reformat or reorder content that the user did not ask to change.
+5. Keep ALL LaTeX commands intact — do not simplify or replace them.
+6. For projects.tex: if the user asks to pick N projects, remove the entire
+   \\resumeProjectHeading block (heading + \\resumeItemListStart ...
+   \\resumeItemListEnd) for every project not selected. Do NOT touch the
+   \\section header or surrounding \\vspace commands.
+7. For layout: do NOT add random \\vspace, \\newpage, or blank lines unless
+   the user specifically asked for spacing fixes. Trust the existing layout.
+8. Only return files that actually changed. Omit unchanged files entirely.
+
+═══════════════════════════════════════════════════════
+JSON FORMAT RULES  (violations cause hard failures on the client)
+═══════════════════════════════════════════════════════
+RULE 1 — OUTPUT ONLY JSON.
+  Your entire response must be a single JSON object.
+  No markdown fences. No preamble. No trailing text.
+  First character: {{   Last character: }}
+
+RULE 2 — BACKSLASH ESCAPING.
+  Every backslash in LaTeX MUST be doubled inside a JSON string.
+  \\textbf   → \\\\textbf
+  \\begin    → \\\\begin
+  \\item     → \\\\item
+  \\section  → \\\\section
+  A single backslash inside a JSON string is a JSONDecodeError.
+
+RULE 3 — NEWLINES.
+  No literal line breaks inside JSON string values.
+  Represent every line break as: \\n
+
+RULE 4 — COMPLETE FILES ONLY.
+  Every file in the JSON must contain its COMPLETE content.
+  Never truncate. If you cannot fit a file, omit it entirely.
+
+RULE 5 — VALID JSON.
+  Verify before responding:
+  - Matching braces and quotes
+  - No trailing comma after last key-value pair
+  - No unescaped control characters in strings
+
+RESPONSE SHAPE:
+{{"sections/summary.tex": "...complete content...", "sections/projects.tex": "...complete content..."}}"""
+
+
+# ─── Replacement prompt string for refine_variant() ──────────────────────────
+# Replace the prompt = f"""...""" block inside refine_variant() with this.
+
+REFINE_VARIANT_PROMPT_TEMPLATE = """You are a LaTeX resume editor. Your only output is a single raw JSON object. Nothing else.
+
+═══════════════════════════════════════════════════════
+TASK
+═══════════════════════════════════════════════════════
+Apply this feedback to the current resume variant.
+
+FEEDBACK:
+{feedback}
+
+CURRENT RESUME FILES:
+{files_block}
+
+═══════════════════════════════════════════════════════
+RULES
+═══════════════════════════════════════════════════════
+1. Apply ONLY the changes described in the feedback.
+2. Do NOT invent skills, tools, or experience not already in the resume.
+3. Do NOT change company names, job titles, or dates.
+4. Keep ALL LaTeX commands intact.
+5. Only return files that actually changed. Omit unchanged files.
+
+═══════════════════════════════════════════════════════
+JSON FORMAT RULES  (violations cause hard failures on the client)
+═══════════════════════════════════════════════════════
+RULE 1 — OUTPUT ONLY JSON. No markdown fences, no preamble, no trailing text.
+  First character: {{   Last character: }}
+
+RULE 2 — BACKSLASH ESCAPING.
+  Every backslash in LaTeX MUST be doubled inside JSON strings.
+  \\textbf → \\\\textbf  |  \\begin → \\\\begin  |  \\item → \\\\item
+  A single backslash inside a JSON string causes a JSONDecodeError.
+
+RULE 3 — NEWLINES.
+  No literal newlines inside JSON string values. Use \\n instead.
+
+RULE 4 — COMPLETE FILES ONLY.
+  Include the full content of every changed file. Never truncate.
+
+RULE 5 — VALID JSON.
+  Matching braces/quotes, no trailing comma, no unescaped control characters.
+
+RESPONSE SHAPE:
+{{"sections/summary.tex": "...complete content..."}}"""
 
 def _repair_latex_json(raw: str) -> str:
     """
@@ -94,25 +311,10 @@ def apply_edits(instructions: str, variant_name: str = "") -> dict:
         for path, content in target_content.items()
     )
 
-    prompt = f"""You are a resume editor. Apply the user's requested changes to these LaTeX resume files.
-
-USER INSTRUCTIONS:
-{instructions.strip()}
-
-RESUME FILES:
-{files_block}
-
-RULES:
-- Apply ONLY the changes the user explicitly asked for
-- Do NOT invent skills, experience, or tools not already in the resume
-- Do NOT change company names, job titles, or dates
-- Keep all LaTeX commands intact
-- Return ONLY the files that actually changed
-- Pick ONLY 3 projects based on the job description
-- Pick ONLY 3 best from the given professional experiences, the ones most relevant to the job description; remove or de-emphasize less relevant roles
-
-Respond with ONLY a JSON object: {{"sections/summary.tex": "...full content...", ...}}
-No markdown fences around the JSON. And DO NOT return invalid JSON or Unterminated string or anything that would break the JSON parsing and lead to 422 error code or unprocessable entity, on the client side."""
+    prompt = APPLY_EDITS_PROMPT_TEMPLATE.format(
+        instructions=instructions.strip(),
+        files_block=files_block,
+    )
 
     original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
     os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
@@ -198,25 +400,10 @@ def refine_variant(variant_id: str, feedback: str) -> dict:
         f"### FILE: {path}\n```latex\n{content}\n```"
         for path, content in target_content.items()
     )
-
-    prompt = f"""You are a resume editor. Apply this feedback to the resume.
-
-FEEDBACK:
-{feedback.strip()}
-
-CURRENT RESUME FILES:
-{files_block}
-
-RULES:
-- Apply ONLY the changes requested in the feedback
-- Do NOT invent skills, experience, or tools not already in the resume
-- Do NOT change company names, job titles, or dates
-- Keep all LaTeX commands intact
-- Return ONLY the files that actually changed
-
-Respond with ONLY a JSON object: {{"sections/summary.tex": "...full content...", ...}}
-No markdown fences around the JSON."""
-
+    prompt = REFINE_VARIANT_PROMPT_TEMPLATE.format(
+        feedback=feedback.strip(),
+        files_block=files_block,
+    )
     original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
     os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
     raw = llm.chat(prompt, max_tokens=16000, temperature=0.2)
@@ -298,43 +485,6 @@ def load_resume_files():
                 files[rel_path] = f.read()
     return files
 
-
-def build_prompt(jd, title, company, files):
-    target_content = {k: v for k, v in files.items() if k in TAILOR_TARGETS}
-    files_block = "\n\n".join(
-        f"### FILE: {path}\n```latex\n{content}\n```"
-        for path, content in target_content.items()
-    )
-    return f"""You are a resume editor. Tailor these LaTeX files for this specific job.
-
-JOB: {title} at {company}
-
-JOB DESCRIPTION:
-{jd[:1500]}
-
-RESUME FILES:
-{files_block}
-
-JSON OUTPUT RULES (critical — invalid JSON causes a hard failure):
-- Respond with ONLY a raw JSON object. No markdown fences, no preamble, no trailing text.
-- Every backslash in LaTeX MUST be doubled in the JSON string: \\textbf → \\\\textbf, \\begin → \\\\begin, \\section → \\\\section, etc.
-- Every newline inside a JSON string value MUST be written as the two-character sequence \\n, NOT a literal line break.
-- Double curly braces in LaTeX (e.g. \\section{{...}}) stay as-is; they are valid JSON string content.
-- Return ONLY the files that actually changed.
-- Ensure that you DO NOT return invalid JSON or Unterminated string or anything that would break the JSON parsing on the client side.
-
-TAILORING RULES:
-- Reorder bullets to surface most relevant experience first
-- Rewrite summary.tex to speak directly to this role, BUT DO NOT LIE ABOUT EXPERIENCES OR PREVIOUS WORK
-- Reorder skills.tex so most relevant skills appear first
-- Do NOT invent skills, experience, or tools
-- Do NOT change company names, job titles, or dates
-- Keep all LaTeX commands intact
-- Escape special characters (e.g. & to \\&, % to \\%, $ to \\$) unless part of a command or rendering symbols
-- Pick ONLY 3 projects based on the job description; remove entire 'resumeProjectHeading' blocks for others
-- Keep \\section header and surrounding vspace commands unchanged in projects.tex
-
-Respond with ONLY a JSON object: {{"sections/summary.tex": "...full content...", ...}}"""
 
 
 def make_zip(out_dir, company):
@@ -420,11 +570,18 @@ def tailor(job_id=None, url=None, raw_jd=None, variant_name="", force=False):
         title, company = "Role", url.split("/")[2] if url.count("/") >= 2 else "company"
         jd = fetch_jd(url)
         job_score = 0
-        fit_score, fit_reason = check_fit(jd, title, company)
+        if force:
+            fit_score, fit_reason = 100, "forced"
+        else:
+            fit_score, fit_reason = check_fit(jd, title, company)
+
     elif raw_jd:
         title, company, jd = "Role", "Company", raw_jd
         job_score = 0
-        fit_score, fit_reason = check_fit(jd, title, company)
+        if force:
+            fit_score, fit_reason = 100, "forced"
+        else:
+            fit_score, fit_reason = check_fit(jd, title, company)
     else:
         return {"error": "Need job_id, url, or raw_jd"}
 

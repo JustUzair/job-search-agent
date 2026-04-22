@@ -35,7 +35,7 @@ def _get_api_key() -> str:
 
 # ── Public interface ──────────────────────────────────────────────────────────
 
-def chat(prompt: str, max_tokens: int = 200, temperature: float = 0.2) -> str:
+def chat(prompt: str, max_tokens: int = 200, temperature: float = 0.3) -> str:
     """Send a single-turn prompt, return the assistant text."""
     if PROVIDER == "anthropic":
         return _anthropic(prompt, max_tokens, temperature)
@@ -51,7 +51,7 @@ def chat_json(prompt: str, max_tokens: int = 200) -> dict:
     if PROVIDER == "ollama":
         # Use Ollama's native json format mode — far more reliable than hoping
         # a small model produces valid JSON from a prompt instruction alone.
-        raw = _ollama(prompt, max_tokens, temperature=0.1, json_mode=True)
+        raw = _ollama(prompt, max_tokens, temperature=0.3, json_mode=True)
     else:
         raw = chat(prompt, max_tokens=max_tokens, temperature=0.1)
 
