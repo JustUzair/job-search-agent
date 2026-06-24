@@ -7,6 +7,7 @@ import Config from "./pages/Config.jsx";
 import Funded from "./pages/Funded.jsx";
 import InterviewPrep from "./pages/InterviewPrep.jsx";
 import Outreach from "./pages/Outreach.jsx";
+import Campaigns from "./pages/Campaigns.jsx";
 
 function Layout({ children }) {
   const linkClass = ({ isActive }) =>
@@ -29,6 +30,9 @@ function Layout({ children }) {
             </NavLink>
             <NavLink to="/funded" className={linkClass}>
               Funded
+            </NavLink>
+            <NavLink to="/campaigns" className={linkClass}>
+              Campaigns
             </NavLink>
             <NavLink to="/resumes" className={linkClass}>
               Resumes
@@ -72,6 +76,14 @@ export default function App() {
         element={
           <Layout>
             <Funded />
+          </Layout>
+        }
+      />
+      <Route
+        path="/campaigns"
+        element={
+          <Layout>
+            <Campaigns />
           </Layout>
         }
       />

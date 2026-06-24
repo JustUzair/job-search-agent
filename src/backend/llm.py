@@ -12,6 +12,7 @@ doesn't care which provider is active.
 import os
 import json
 import re
+from typing import Any
 
 # Set LLM_VERBOSE=true in .env to see raw model output before JSON parsing
 LLM_VERBOSE = os.environ.get("LLM_VERBOSE", "").lower() in ("1", "true", "yes")
@@ -25,6 +26,7 @@ OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://host.docker.internal
 def _get_model() -> str:
     return os.environ.get("MODEL_NAME", "nemotron-3-nano:4b")
 
+
 def _get_api_key() -> str:
     return (
         os.environ.get("MODEL_API_KEY", "")
@@ -33,27 +35,110 @@ def _get_api_key() -> str:
     )
 
 
+def _parse_think_value(raw: str | None) -> bool | str | None:
+    if raw is None:
+        return None
+    val = str(raw).strip().lower()
+    if not val:
+        return None
+    if val in ("0", "false", "no", "off"):
+        return False
+    if val in ("1", "true", "yes", "on"):
+        return True
+    if val in ("low", "medium", "high"):
+        return val
+    return None
+
+
+def get_task_model(task: str | None = None) -> str:
+    task = (task or "").strip().lower()
+    default = _get_model()
+    mapping = {
+        "score": os.environ.get("SCORE_MODEL", default),
+        "planner": os.environ.get("PLANNER_MODEL", default),
+        "tailor": os.environ.get("TAILOR_MODEL", default),
+        "research": os.environ.get("RESEARCH_MODEL", default),
+    }
+    return mapping.get(task, default)
+
+
+def get_task_think(task: str | None = None) -> bool | str | None:
+    task = (task or "").strip().lower()
+    env_key = {
+        "score": "SCORE_THINK",
+        "planner": "PLANNER_THINK",
+        "tailor": "TAILOR_THINK",
+        "research": "RESEARCH_THINK",
+    }.get(task, "DEFAULT_THINK")
+    return _parse_think_value(os.environ.get(env_key, os.environ.get("DEFAULT_THINK")))
+
+
+def supports_native_json(model: str) -> bool:
+    if ":cloud" in (model or "").lower():
+        return os.environ.get("OLLAMA_CLOUD_NATIVE_JSON", "").lower() in ("1", "true", "yes")
+    return True
+
+
 # ── Public interface ──────────────────────────────────────────────────────────
 
-def chat(prompt: str, max_tokens: int = 200, temperature: float = 0.3) -> str:
+def chat(
+    prompt: str,
+    max_tokens: int = 200,
+    temperature: float = 0.3,
+    *,
+    model: str | None = None,
+    think: bool | str | None = None,
+    task: str | None = None,
+) -> str:
     """Send a single-turn prompt, return the assistant text."""
     if PROVIDER == "anthropic":
-        return _anthropic(prompt, max_tokens, temperature)
+        return _anthropic(prompt, max_tokens, temperature, model=model, task=task)
     if PROVIDER == "ollama":
-        return _ollama(prompt, max_tokens, temperature)
-    return _openai(prompt, max_tokens, temperature)
+        return _ollama(
+            prompt,
+            max_tokens,
+            temperature,
+            model=model,
+            think=think,
+            task=task,
+        )
+    return _openai(prompt, max_tokens, temperature, model=model, task=task)
 
 
-def chat_json(prompt: str, max_tokens: int = 200) -> dict:
+def chat_json(
+    prompt: str,
+    max_tokens: int = 200,
+    *,
+    model: str | None = None,
+    think: bool | str | None = None,
+    task: str | None = None,
+) -> dict:
     """Like chat() but enforces JSON output and parses the result.
     Returns {} on failure so callers always get a dict.
     """
     if PROVIDER == "ollama":
-        # Use Ollama's native json format mode — far more reliable than hoping
-        # a small model produces valid JSON from a prompt instruction alone.
-        raw = _ollama(prompt, max_tokens, temperature=0.3, json_mode=True)
+        selected_model = model or get_task_model(task)
+        raw = _ollama(
+            prompt,
+            max_tokens,
+            temperature=0.3,
+            json_mode=supports_native_json(selected_model),
+            model=selected_model,
+            think=think,
+            task=task,
+        )
     else:
-        raw = chat(prompt, max_tokens=max_tokens, temperature=0.1)
+        json_prompt = (
+            f"{prompt}\n\nReturn ONLY valid JSON. No markdown fences, no commentary."
+        )
+        raw = chat(
+            json_prompt,
+            max_tokens=max_tokens,
+            temperature=0.1,
+            model=model,
+            think=think,
+            task=task,
+        )
 
     if LLM_VERBOSE:
         preview = (raw or "").replace("\n", " ").strip()
@@ -72,11 +157,11 @@ def chat_json(prompt: str, max_tokens: int = 200) -> dict:
 
 # ── Provider implementations ──────────────────────────────────────────────────
 
-def _openai(prompt, max_tokens, temperature):
+def _openai(prompt, max_tokens, temperature, *, model=None, task=None):
     from openai import OpenAI
     client = OpenAI(api_key=_get_api_key())
     resp = client.chat.completions.create(
-        model=_get_model(),
+        model=model or get_task_model(task),
         temperature=temperature,
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
@@ -84,11 +169,11 @@ def _openai(prompt, max_tokens, temperature):
     return resp.choices[0].message.content.strip()
 
 
-def _anthropic(prompt, max_tokens, temperature):
+def _anthropic(prompt, max_tokens, temperature, *, model=None, task=None):
     import anthropic
     client = anthropic.Anthropic(api_key=_get_api_key())
     msg = client.messages.create(
-        model=_get_model(),
+        model=model or get_task_model(task),
         max_tokens=max_tokens,
         temperature=temperature,
         messages=[{"role": "user", "content": prompt}],
@@ -96,31 +181,46 @@ def _anthropic(prompt, max_tokens, temperature):
     return msg.content[0].text.strip()
 
 
-def _ollama(prompt, max_tokens, temperature: float = 0.3,
-            json_mode: bool = True) -> str:
+def _ollama(
+    prompt,
+    max_tokens,
+    temperature: float = 0.3,
+    json_mode: bool = False,
+    *,
+    model: str | None = None,
+    think: bool | str | None = None,
+    task: str | None = None,
+    num_ctx: int | None = None,
+) -> str:
     """
     Call a locally-running Ollama instance.
 
-    Key fixes vs original:
-    - Removed `think=False` — passing that param to a non-thinking model
-      causes Ollama to return empty message.content (root cause of parse_fail).
-    - Read model name via _get_model() so TAILOR_MODEL hot-swap works.
-    - Added json_mode / format="json" so chat_json() gets reliable JSON from
-      small models without depending on perfect prompt adherence.
-      
+    Key behavior:
+    - Model is selected per task instead of mutating MODEL_NAME globally.
+    - `think` is only passed when explicitly configured.
+    - Native JSON mode is opt-in per selected model.
     """
     from ollama import Client
     client = Client(host=OLLAMA_BASE_URL)
+    selected_model = model or get_task_model(task)
+    selected_think = think if think is not None else get_task_think(task)
 
-    kwargs = dict(
-        model=_get_model(),
+    options: dict[str, Any] = {
+        "temperature": temperature,
+    }
+    if max_tokens:
+        options["num_predict"] = max_tokens
+    if num_ctx:
+        options["num_ctx"] = num_ctx
+
+    kwargs: dict[str, Any] = dict(
+        model=selected_model,
         messages=[{"role": "user", "content": prompt}],
-        think=False,
         stream=False,
-        options={
-            "temperature": temperature,
-        },
+        options=options,
     )
+    if selected_think is not None:
+        kwargs["think"] = selected_think
 
     if json_mode:
         # Constrains Ollama's output to valid JSON grammar — works on any model
@@ -163,7 +263,8 @@ def _create_ollama_batch(jobs, candidate_profile):
                 _build_score_prompt(job, candidate_profile),
                 80,     # max_tokens
                 0.1,    # temperature
-                True,   # json_mode — forces valid JSON from small models
+                json_mode=supports_native_json(get_task_model("score")),
+                task="score",
             ): job
             for job in jobs
         }
@@ -197,9 +298,9 @@ def _create_anthropic_batch(jobs, candidate_profile):
     for job in jobs:
         prompt = _build_score_prompt(job, candidate_profile)
         reqs.append({
-            "custom_id": job["id"],
-            "params": {
-                "model": _get_model(),
+                "custom_id": job["id"],
+                "params": {
+                "model": get_task_model("score"),
                 "max_tokens": 80,
                 "temperature": 0.1,
                 "messages": [{"role": "user", "content": prompt}],
@@ -223,7 +324,7 @@ def _create_openai_batch(jobs, candidate_profile):
             "method": "POST",
             "url": "/v1/chat/completions",
             "body": {
-                "model": _get_model(),
+                "model": get_task_model("score"),
                 "max_tokens": 80,
                 "temperature": 0.1,
                 "messages": [{"role": "user", "content": prompt}],

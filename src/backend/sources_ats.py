@@ -491,7 +491,31 @@ async def _fetch_all_async(companies: list) -> list:
 MAX_COMPANIES_PER_RUN = 500
 
 
-def scrape_ats() -> list:
+def refresh_ats_registry(force: bool = False) -> dict:
+    """
+    Refresh ATS company discovery separately from interactive campaign runs.
+    This can be called on a schedule or manually when you want broader coverage.
+    """
+    if not _AIOHTTP_AVAILABLE:
+        return {"refreshed": False, "reason": "aiohttp not installed"}
+    db.init_db()
+    seed_ats_companies()
+    if force:
+        conn = __import__("sqlite3").connect(db.DB_PATH)
+        conn.execute("DELETE FROM config WHERE key = 'ats_discovery_last_run'")
+        conn.commit()
+        conn.close()
+    before = db.count_ats_companies()
+    discover_from_github_lists()
+    after = db.count_ats_companies()
+    return {"refreshed": True, "before": before, "after": after, "added": max(0, after - before)}
+
+
+def scrape_ats(
+    *,
+    refresh_registry: bool = True,
+    max_companies: int | None = None,
+) -> list:
     """
     Fetch jobs from all active ATS companies.
     Returns a flat list of raw job dicts (not yet filtered or scored).
@@ -502,16 +526,18 @@ def scrape_ats() -> list:
 
     db.init_db()
     seed_ats_companies()
-    discover_from_github_lists()
+    if refresh_registry:
+        discover_from_github_lists()
 
     companies = db.list_ats_companies(active_only=True)
     if not companies:
         print("[ats] no companies to fetch")
         return []
 
+    company_cap = max_companies or MAX_COMPANIES_PER_RUN
     total = len(companies)
-    batch = companies[:MAX_COMPANIES_PER_RUN]
-    if total > MAX_COMPANIES_PER_RUN:
+    batch = companies[:company_cap]
+    if total > company_cap:
         print(f"[ats] {total} stale companies, fetching batch of {len(batch)} (oldest first)")
     else:
         print(f"[ats] fetching {total} companies in parallel...")

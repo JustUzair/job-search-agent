@@ -1,304 +1,364 @@
-# Job Hunter Bot — Setup (10 minutes)
+# OpenClaw
 
-No OpenClaw. No framework. Just a Python Telegram bot + Docker.
+Personal job-search intelligence system for discovering roles, scoring fit, and tailoring resumes.
 
-## What you need first
+This repo is no longer a Telegram bot. The current product is a Dockerized FastAPI backend with a React frontend, backed by SQLite, with Ollama-first model support and plugin-based campaign discovery.
 
-1. **Docker Desktop** running on your Mac
-2. **A Telegram bot token** — message @BotFather on Telegram:
-   - Send `/newbot`
-   - Follow prompts, get a token like `123456789:ABCdef...`
-3. **Your Telegram chat ID** — message @userinfobot on Telegram, it replies with your ID
-4. **Your OpenAI API key**
+## What it does
 
----
+- Runs scheduled and on-demand job scraping across multiple sources.
+- Supports reusable search campaigns built from natural-language prompts.
+- Uses deterministic discovery plugins and real URLs instead of model-invented links.
+- Scores roles against a stored candidate profile.
+- Stores evidence for where a job came from: plugin, query, canonical URL.
+- Tailors resume variants from job URLs, pasted JDs, or saved jobs.
+- Keeps notes, profile context, funded-company leads, interview answers, and outreach helpers in one app.
+
+## Current stack
+
+- Backend: FastAPI
+- Frontend: React + Vite + Tailwind
+- Database: SQLite
+- LLM path: Ollama-first, with wrappers for OpenAI and Anthropic
+- Scraping: `requests`, `BeautifulSoup`, `aiohttp`, `Playwright`
+- Resume output: LaTeX + `latexmk`
+
+## Main features
+
+### 1. Campaign-based discovery
+
+Campaigns represent search intent, not just a flat keyword list.
+
+Example:
+
+```text
+Find remote or India-friendly AI-native backend, FDE/Solutions, DevRel, backend, fullstack, developer-tools, and Web3 infra roles. Avoid pure sales, pure support, senior/staff-only, and onsite-only roles.
+```
+
+The campaign pipeline:
+
+```text
+Prompt
+  -> planner model
+  -> discovery plugins
+  -> URL normalization / dedupe
+  -> fetch / parse
+  -> hard filters
+  -> fit scoring
+  -> SQLite + frontend results
+```
+
+Currently supported discovery plugins:
+
+- `ollama_web`
+- `ats`
+- `hn`
+- `web3`
+- `manual`
+- `ddg_optional`
+
+### 2. ATS discovery and scraping
+
+The app directly fetches public Greenhouse, Lever, and Ashby job boards.
+
+ATS registry discovery is now separated from interactive campaign runs. You can refresh the ATS registry explicitly instead of forcing every campaign to do bootstrap discovery inline.
+
+### 3. Job scoring
+
+Jobs are scored against the stored candidate profile and campaign intent.
+
+Current fit output includes:
+
+- `score`
+- `reason`
+- `fit_band`
+- `matched_role_family`
+- `red_flags`
+
+### 4. Resume tailoring
+
+The app can tailor resumes from:
+
+- saved jobs
+- arbitrary job URLs
+- pasted job descriptions
+
+It writes full variant folders and ZIP/PDF outputs under `data/resumes/`.
+
+### 5. Campaign archiving
+
+Campaigns can be archived and restored. Archive is a soft-delete:
+
+- archived campaigns disappear from the active list
+- history remains in the database
+- archived campaigns can be restored from the UI
+
+## Repo structure
+
+```text
+src/backend/
+  main.py                FastAPI app and API routes
+  db.py                  SQLite schema, migrations, persistence helpers
+  llm.py                 provider abstraction and task-specific model routing
+  scraper.py             legacy scrape pipeline + generic page parsing
+  sources_ats.py         ATS company discovery and ATS board fetchers
+  campaigns.py           campaign planning and discovery execution
+  tailor.py              resume tailoring and variant generation
+  outreach.py            outreach/contact discovery helpers
+  discovery/
+    base.py
+    registry.py
+    url_utils.py
+    ollama_web.py
+    ats.py
+    hn.py
+    web3.py
+    manual.py
+    ddg_optional.py
+
+src/frontend/
+  src/
+    pages/
+      Jobs.jsx
+      Campaigns.jsx
+      Funded.jsx
+      Resumes.jsx
+      ResumeEdit.jsx
+      Journal.jsx
+      InterviewPrep.jsx
+      Outreach.jsx
+      Config.jsx
+
+resume/                  source resume project mounted read-only into container
+data/                    SQLite DB + generated outputs
+```
 
 ## Setup
 
-### 1. Create the project folder
+### Prerequisites
 
-```bash
-mkdir job-bot && cd job-bot
+- Docker Desktop
+- Ollama running on the host machine if using `MODEL_PROVIDER=ollama`
+- A LaTeX resume source tree under `resume/`
+
+### Resume layout
+
+The app expects a LaTeX project like:
+
+```text
+resume/
+  resume.tex
+  _header.tex
+  TLCresume.sty
+  sections/
+    experience.tex
+    skills.tex
+    projects.tex
+    education.tex
+    ...
 ```
 
-Copy all these files into it:
+The `resume/` mount is read-only. Tailored variants are written into `data/resumes/`.
 
-```
-job-bot/
-  bot.py
-  scraper.py
-  tailor.py
-  db.py
-  Dockerfile
-  docker-compose.yml
-  requirements.txt
-  .env
-  resume/              ← your Overleaf project folder goes here
-  data/                ← created automatically, holds DB + tailored resumes
-```
+### Environment
 
-### 2. Create your .env file
+Start from:
 
 ```bash
 cp .env.example .env
 ```
 
-Edit `.env`:
+Important variables:
 
-```
-TELEGRAM_TOKEN=123456789:ABCdef...
-TELEGRAM_CHAT_ID=987654321
-OPENAI_API_KEY=sk-...
-SCORE_THRESHOLD=60
-```
-
-### 3. Add your resume
-
-Download your full Overleaf project:
-
-- In Overleaf: Menu > Download > Source > gives you a .zip
-- Unzip it into a folder called `resume/` inside `job-bot/`
-
-Your structure should look like:
-
-```
-job-bot/
-  resume/
-    resume.tex
-    _header.tex
-    TLCresume.sty
-    sections/
-      experience.tex
-      skills.tex
-      objective.tex
-      ... etc
-```
-
-The `resume/` folder is mounted read-only -- the bot never touches your originals.
-
-### 4. Build and start
-
-```bash
-docker compose up --build
-```
-
-First run takes ~2 minutes (downloading Python, installing packages).
-After that, starts in seconds.
-
-You should see:
-
-```
-Bot polling...
-Scheduler started — daily scrape at 08:00
-```
-
-### 5. Test it
-
-Open Telegram, message your bot: `/scrape`
-
-It will scrape HN, web3.career, etc., score jobs, and send you a digest.
-
----
-
-## (Optional): Using Ollama for Free (Local LLM)
-
-Skip the OpenAI/Anthropic API keys and run job scoring locally on your machine using **Ollama**. No cloud costs, no API limits, completely free.
-
-### Prerequisites
-
-- **Ollama** installed on your Mac: https://ollama.ai
-- A supported model downloaded locally
-
-### Step 1: Install Ollama
-
-Download and install from [ollama.ai](https://ollama.ai). Takes ~2 minutes.
-
-### Step 2: Pull a model
-
-Open a terminal and pull a local model. Choose one:
-
-**Recommended (good balance):**
-
-```bash
-ollama pull gpt-oss:20b-cloud
-```
-
-**Lightweight (3B parameters, faster):**
-
-```bash
-ollama pull phi
-```
-
-**Heavier (70B parameters, better quality):**
-
-```bash
-ollama pull llama2:70b
-```
-
-Pull takes 5–30 minutes depending on model size and internet speed. It downloads once and caches locally.
-
-### Step 2b: Create a custom model from Modelfile (optional)
-
-If you want to use the specialized coding assistant configuration included in this project:
-
-1. Make sure you're in the project directory (contains the `Modelfile`)
-2. Create the custom model:
-
-```bash
-ollama create qwen3-coder:30b -f Modelfile
-```
-
-3. Update your `.env` to use the custom model:
-
-```
-MODEL_NAME=qwen3-coder:30b
-```
-
-This custom model includes detailed instructions for code quality, architecture, and best practices built into the system prompt.
-
-### Step 3: Update your `.env` file
-
-### Step 4: Update your `.env` file
-
-Replace the API key config with Ollama settings:
-
-```
-# **Comment these out if using Ollama:**
-# OPENAI_API_KEY=sk-...
-
-# **Add these instead:**
+```env
 MODEL_PROVIDER=ollama
-MODEL_NAME=gpt-oss:20b-cloud
+MODEL_API_KEY=ollama
+MODEL_NAME=gemma4:31b-cloud
 OLLAMA_BASE_URL=http://host.docker.internal:11434
 
-TELEGRAM_TOKEN=123456789:ABCdef...
-TELEGRAM_CHAT_ID=987654321
+SCORE_MODEL=gemma4:31b-cloud
+PLANNER_MODEL=gemma4:31b-cloud
+TAILOR_MODEL=gemma4:31b-cloud
+RESEARCH_MODEL=gemma4:31b-cloud
+
+DEFAULT_THINK=false
+SCORE_THINK=false
+PLANNER_THINK=false
+TAILOR_THINK=false
+RESEARCH_THINK=low
+
+OLLAMA_API_KEY=your_ollama_api_key
+ENABLE_OLLAMA_WEB_SEARCH=true
+OLLAMA_WEB_MAX_RESULTS=5
+ENABLE_DDG_SEARCH=false
+OLLAMA_CLOUD_NATIVE_JSON=false
+
 SCORE_THRESHOLD=60
+
+SERPER_API_KEY=
+SCRAPERAPI_KEY=
+HUNTER_API_KEY=
 ```
 
-**Note:** `host.docker.internal` is how Docker containers reach your Mac's `localhost:11434`.
+Notes:
 
-### Step 5: Start Ollama server (in a separate terminal)
+- `OLLAMA_API_KEY` is used for `ollama_web`.
+- If `ENABLE_OLLAMA_WEB_SEARCH` is omitted, the backend now auto-enables `ollama_web` when `OLLAMA_API_KEY` is present.
+- `SERPER_API_KEY`, `SCRAPERAPI_KEY`, and `HUNTER_API_KEY` are only for outreach helpers.
 
-```bash
-ollama serve
-```
-
-Leave this running. You'll see:
-
-```
-Listening on 127.0.0.1:11434
-```
-
-### Step 6: Start the bot
-
-In your original terminal:
+### Start the app
 
 ```bash
 docker compose up --build
 ```
 
-The bot now pulls job descriptions directly to your local model. Scoring happens completely on your machine.
+Backend:
 
-### Step 6: Test it
+- `http://localhost:8000`
 
-Message your bot: `/scrape`
+Frontend:
 
-Jobs will be scored using your local Ollama model (no API calls, no costs).
+- served by FastAPI from the built `src/frontend/dist`
 
----
+## Frontend development
 
-### Step 7: Test it
+The Docker container serves the built frontend assets from `src/frontend/dist`.
 
-Message your bot: `/scrape`
-
-Jobs will be scored using your local Ollama model (no API calls, no costs).
-
----
-
-### Switching models
-
-To try a different model (including your custom model):
-
-1. Pull or create the model:
-   - `ollama pull llama2:70b` (pull remote)
-   - `ollama create qwen3-coder:30b -f Modelfile` (create from local Modelfile)
-2. Update `.env`: `MODEL_NAME=llama2:70b` or `MODEL_NAME=qwen3-coder:30b`
-3. Restart: `docker compose down && docker compose up`
-
-### Pros & Cons
-
-| Aspect      | Ollama                           | OpenAI/Anthropic  |
-| ----------- | -------------------------------- | ----------------- |
-| **Cost**    | Free                             | Pay per request   |
-| **Speed**   | Depends on model (30–60 sec/job) | Fast (~5 sec/job) |
-| **Quality** | Good (~70–80% accuracy)          | Excellent (~95%+) |
-| **Privacy** | All local (no data leaves)       | Cloud-based       |
-| **Setup**   | ~30 min (first pull)             | Instant (API key) |
-
----
-
-## Day-to-day usage
+When you change frontend code:
 
 ```bash
-# Start in background
-docker compose up -d
+cd src/frontend
+npm install
+npm run build
+```
 
-# Watch logs
-docker compose logs -f
+Then refresh the browser. The `dist` directory is mounted into the container.
 
-# Stop
-docker compose down
+Backend code is mounted directly, so Python changes hot-reload under `uvicorn --reload`.
 
-# Rebuild after code changes
+## Main UI pages
+
+- `Jobs`: legacy queue + manual tailor-from-URL/JD
+- `Campaigns`: campaign creation, run, archive/restore, results
+- `Funded`: funded company leads
+- `Resumes`: generated variants
+- `Resume Edit`: free-form resume edits
+- `Journal`: work log / personal memory
+- `Interview`: answer hiring questions in your voice
+- `Outreach`: contact discovery helpers
+- `Config`: legacy global search config + candidate profile
+
+## API overview
+
+### Jobs
+
+- `GET /api/jobs`
+- `GET /api/jobs/all`
+- `GET /api/jobs/{job_id}`
+- `POST /api/jobs/{job_id}/status`
+
+### Scraping
+
+- `POST /api/scrape`
+- `GET /api/scrape/status`
+- `GET /api/batches`
+- `POST /api/batches/poll`
+
+### Campaigns
+
+- `GET /api/campaigns`
+- `GET /api/campaigns?include_archived=true`
+- `POST /api/campaigns`
+- `POST /api/campaigns/{id}/run`
+- `POST /api/campaigns/{id}/archive`
+- `POST /api/campaigns/{id}/restore`
+- `GET /api/campaigns/{id}/results`
+- `POST /api/discovery/run`
+- `POST /api/discovery/ats/refresh`
+
+### Resume / profile
+
+- `POST /api/tailor`
+- `POST /api/resume/edit`
+- `POST /api/variants/{id}/refine`
+- `GET /api/variants`
+- `GET /api/variants/{id}/zip`
+- `GET /api/variants/{id}/pdf`
+- `GET /api/profile`
+- `PUT /api/profile`
+- `POST /api/profile/sync-from-journal`
+
+### Other
+
+- `GET /api/funded`
+- `GET /api/journal`
+- `POST /api/journal`
+- `POST /api/resumediff`
+- `POST /api/interview/answer`
+- `GET /api/config`
+- `PUT /api/config`
+- `GET /api/sources`
+
+## Operational notes
+
+### Campaign runs
+
+- Campaign runs are concurrent across plugins, materialization, and scoring.
+- ATS registry refresh is explicit and separate from interactive campaign execution.
+- ATS board fetching still takes real time because it is doing actual network work.
+
+### Data persistence
+
+Persisted on the host:
+
+```text
+data/jobs.db
+data/resumes/
+```
+
+### Scheduled background work
+
+Configured in the backend lifespan:
+
+- daily scrape at `08:00` Asia/Kolkata
+- batch polling every `5` minutes
+
+## Known rough edges
+
+- Some legacy README-era terminology still exists in variable names and comments.
+- Company extraction from generic job pages is improving but not perfect.
+- Some older job rows may still contain weak company values from earlier runs.
+- `main.py` currently emits a pre-existing Python string escape warning at import time.
+- Frontend build emits a Vite/package module warning but still builds cleanly.
+
+## Typical workflow
+
+1. Start Ollama on the host.
+2. Start the app with `docker compose up --build`.
+3. Open the UI at `http://localhost:8000`.
+4. Create or quick-run a campaign.
+5. Inspect surfaced jobs and evidence.
+6. Tailor a resume variant from a saved job or pasted JD.
+7. Archive old campaigns instead of deleting them.
+
+## Pushing to GitHub
+
+Before pushing:
+
+```bash
+cd src/frontend && npm run build
 docker compose up --build
 ```
 
----
+Check:
 
-## Bot commands
+- UI loads
+- campaign creation/runs work
+- archived campaigns can be restored
+- backend starts cleanly enough for your target environment
 
-| Command               | What it does                   |
-| --------------------- | ------------------------------ |
-| `/scrape`             | Run a fresh scrape right now   |
-| `/jobs`               | List jobs in queue             |
-| `/tailor abc123`      | Tailor resume for job by ID    |
-| `/tailor https://...` | Tailor resume for any job URL  |
-| `/funded`             | Show recently funded companies |
-| `/applied abc123`     | Mark job as applied            |
-| `/skip abc123`        | Skip a job                     |
+Do not commit:
 
-Tailored resumes land in `./data/resumes/<company_timestamp>/` on your Mac.
-Each folder is a complete copy of your resume with the relevant files modified.
-Copy the folder contents back into your Overleaf project to apply.
-
----
-
-## Files on your Mac (persisted across restarts)
-
-```
-./data/jobs.db          ← SQLite database
-./resume/               ← your Overleaf source (read-only mount)
-./data/jobs.db          ← SQLite database
-./data/resumes/         ← tailored resume folders, one per job
-```
-
----
-
-## Tweaking the candidate profile
-
-Edit the `CANDIDATE_PROFILE` string in `scraper.py`.
-Rebuild: `docker compose up --build -d`
-
-## Adjusting the score threshold
-
-Change `SCORE_THRESHOLD` in your `.env` file, then restart:
-
-```bash
-docker compose restart
-```
-
-## Adding more job sources later
-
-Add a new function in `scraper.py` following the same pattern
-(`scrape_xyz() -> list[dict]`) and add it to `run_scrape()`.
+- `.env`
+- local secrets
+- unnecessary generated artifacts if you do not want them versioned

@@ -2,7 +2,9 @@ import os
 import re
 import time
 import hashlib
+import json
 from datetime import datetime, timezone, timedelta
+from urllib.parse import urlparse
 
 import requests
 from bs4 import BeautifulSoup
@@ -543,7 +545,7 @@ def passes_filters(job: dict, cfg: dict) -> bool:
 def score_job(job: dict) -> tuple[int, str]:
     """Synchronous single-job scoring fallback (used when batching unavailable)."""
     candidate_profile = db.get_profile()
-    data = llm.chat_json(llm._build_score_prompt(job, candidate_profile), max_tokens=80)
+    data = llm.chat_json(llm._build_score_prompt(job, candidate_profile), max_tokens=80, task="score")
     return int(data.get("score", 0)), str(data.get("reason", ""))[:120]
 
 
@@ -651,6 +653,130 @@ def _sanitize_query(query: str) -> str:
     # Replace Unicode left/right single quotation marks with ASCII apostrophe
     query = query.replace("\u2018", "'").replace("\u2019", "'")
     return query.strip()
+
+
+def _clean_company_name(value: str) -> str:
+    text = re.sub(r"\s+", " ", (value or "")).strip(" -|,:")
+    text = re.sub(r"\b(careers?|jobs?|job board|apply now|join us)\b", "", text, flags=re.I)
+    text = re.sub(r"\s+", " ", text).strip(" -|,:")
+    return text[:80]
+
+
+def _looks_like_company(value: str) -> bool:
+    text = _clean_company_name(value)
+    if not text:
+        return False
+    lowered = text.lower()
+    bad = {
+        "ai/llm",
+        "ai",
+        "llm",
+        "remote",
+        "worldwide",
+        "global",
+        "developer",
+        "software",
+        "senior",
+        "staff",
+        "principal",
+        "fullstack",
+        "full stack",
+        "backend",
+        "frontend",
+        "engineer",
+        "lead",
+        "job board",
+        "careers",
+        "jobs",
+    }
+    if lowered in bad:
+        return False
+    if len(text) <= 2:
+        return False
+    return True
+
+
+def _company_from_title_patterns(title: str) -> str:
+    patterns = [
+        r"\s+at\s+([A-Z][A-Za-z0-9&'.+\- ]{1,60})$",
+        r"\|\s*([A-Z][A-Za-z0-9&'.+\- ]{1,60})$",
+        r"\s+-\s+([A-Z][A-Za-z0-9&'.+\- ]{1,60})$",
+        r"^([A-Z][A-Za-z0-9&'.+\- ]{1,60})\s+[-|:]\s+",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, title or "")
+        if match:
+            candidate = _clean_company_name(match.group(1))
+            if _looks_like_company(candidate):
+                return candidate
+    return ""
+
+
+def _company_from_json_ld(soup: BeautifulSoup) -> str:
+    for tag in soup.select('script[type="application/ld+json"]'):
+        raw = tag.string or tag.get_text()
+        if not raw or "JobPosting" not in raw:
+            continue
+        try:
+            data = json.loads(raw)
+        except Exception:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            org = item.get("hiringOrganization")
+            if isinstance(org, dict):
+                candidate = _clean_company_name(org.get("name", ""))
+                if _looks_like_company(candidate):
+                    return candidate
+    return ""
+
+
+def _company_from_meta(soup: BeautifulSoup) -> str:
+    meta_candidates = [
+        ('meta[property="og:site_name"]', "content"),
+        ('meta[name="application-name"]', "content"),
+        ('meta[name="twitter:site"]', "content"),
+    ]
+    for selector, attr in meta_candidates:
+        tag = soup.select_one(selector)
+        if tag:
+            candidate = _clean_company_name(tag.get(attr, "").lstrip("@"))
+            if _looks_like_company(candidate):
+                return candidate
+    return ""
+
+
+def _company_from_page_text(soup: BeautifulSoup) -> str:
+    selectors = [
+        '[data-testid*="company"]',
+        '[class*="company"]',
+        '[class*="employer"]',
+        '[class*="organization"]',
+        '[itemprop="hiringOrganization"]',
+    ]
+    for selector in selectors:
+        for tag in soup.select(selector):
+            candidate = _clean_company_name(tag.get_text(" ", strip=True))
+            if _looks_like_company(candidate):
+                return candidate
+    return ""
+
+
+def _company_from_domain(url: str) -> str:
+    try:
+        host = urlparse(url).netloc.lower()
+    except Exception:
+        return ""
+    host = re.sub(r"^www\.", "", host)
+    if any(platform in host for platform in ("greenhouse", "lever.co", "ashbyhq", "workable", "jobstash", "ycombinator", "news.ycombinator")):
+        return ""
+    parts = host.split(".")
+    if not parts:
+        return ""
+    candidate = _clean_company_name(parts[0].replace("-", " ").replace("_", " ").title())
+    return candidate if _looks_like_company(candidate) else ""
 
 
 def _ddg_search(query: str, max_results: int = 30) -> list:
@@ -761,14 +887,24 @@ def _fetch_job_page(url: str) -> dict:
                 title = tag.get_text(strip=True)[:200]
                 break
 
-        # ── Company (from URL slug) ─────────────────────────────────────
+        # ── Company (use strongest signal available) ───────────────────
         company = ""
         for domain, meta in _ATS_META.items():
             if domain in url:
                 m = re.search(meta["company_re"], url)
                 if m:
-                    company = m.group(1).replace("-", " ").title()
+                    company = _clean_company_name(m.group(1).replace("-", " ").title())
                 break
+        if not company:
+            company = _company_from_json_ld(soup)
+        if not company:
+            company = _company_from_meta(soup)
+        if not company:
+            company = _company_from_page_text(soup)
+        if not company:
+            company = _company_from_title_patterns(title)
+        if not company:
+            company = _company_from_domain(url)
 
         # ── Description (grab all visible text from main/article/body) ──
         for tag in soup(["script", "style", "nav", "footer", "header"]):
@@ -781,7 +917,7 @@ def _fetch_job_page(url: str) -> dict:
 
         return dict(
             title=title,
-            company=company or _first_word(title),
+            company=company or _clean_company_name(_first_word(title)),
             description=description,
             work_type=detect_work_type(title + " " + description[:500]),
             location=detect_location(description[:500]),

@@ -1,6 +1,8 @@
 import sqlite3
 import os
 import json
+import hashlib
+from datetime import datetime, timezone
 
 DB_PATH = os.environ.get("DB_PATH", "/app/data/jobs.db")
 
@@ -54,6 +56,10 @@ def get_conn():
     return conn
 
 
+def _json_dumps(value):
+    return json.dumps(value if value is not None else [])
+
+
 def _migrate(conn):
     """Add missing columns to existing tables without destroying data."""
     existing_jobs = {row[1] for row in conn.execute("PRAGMA table_info(jobs)")}
@@ -61,6 +67,16 @@ def _migrate(conn):
         ("work_type",  "TEXT DEFAULT ''"),
         ("location",   "TEXT DEFAULT ''"),
         ("posted_at",  "TEXT DEFAULT ''"),
+        ("batch_id", "TEXT DEFAULT ''"),
+        ("original_url", "TEXT DEFAULT ''"),
+        ("canonical_url", "TEXT DEFAULT ''"),
+        ("found_by_plugin", "TEXT DEFAULT ''"),
+        ("found_by_query", "TEXT DEFAULT ''"),
+        ("fit_band", "TEXT DEFAULT ''"),
+        ("matched_role_family", "TEXT DEFAULT ''"),
+        ("red_flags_json", "TEXT DEFAULT '[]'"),
+        ("metadata_json", "TEXT DEFAULT '{}'"),
+        ("fetched_at", "TEXT DEFAULT ''"),
     ]
     for col, typedef in job_migrations:
         if col not in existing_jobs:
@@ -102,9 +118,48 @@ def _migrate(conn):
         )
     """)
 
-    # Add batch_id to jobs so we know which batch scored them
-    if "batch_id" not in existing_jobs:
-        conn.execute("ALTER TABLE jobs ADD COLUMN batch_id TEXT DEFAULT ''")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS campaigns (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            role_families TEXT DEFAULT '[]',
+            aliases TEXT DEFAULT '[]',
+            avoid_terms TEXT DEFAULT '[]',
+            search_queries TEXT DEFAULT '[]',
+            enabled_plugins TEXT DEFAULT '[]',
+            locations TEXT DEFAULT '[]',
+            max_yoe INTEGER DEFAULT 5,
+            metadata_json TEXT DEFAULT '{}',
+            enabled INTEGER DEFAULT 1,
+            created_at TEXT,
+            updated_at TEXT,
+            last_run TEXT DEFAULT ''
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS campaign_runs (
+            id TEXT PRIMARY KEY,
+            campaign_id TEXT NOT NULL,
+            status TEXT DEFAULT 'completed',
+            started_at TEXT,
+            completed_at TEXT DEFAULT '',
+            summary_json TEXT DEFAULT '{}'
+        )
+    """)
+
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS campaign_results (
+            id TEXT PRIMARY KEY,
+            campaign_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            job_id TEXT NOT NULL,
+            found_by_plugin TEXT DEFAULT '',
+            found_by_query TEXT DEFAULT '',
+            discovered_at TEXT
+        )
+    """)
 
     conn.commit()
 
@@ -124,6 +179,17 @@ def init_db():
             status      TEXT DEFAULT 'new',
             work_type   TEXT DEFAULT '',
             location    TEXT DEFAULT '',
+            posted_at   TEXT DEFAULT '',
+            batch_id    TEXT DEFAULT '',
+            original_url TEXT DEFAULT '',
+            canonical_url TEXT DEFAULT '',
+            found_by_plugin TEXT DEFAULT '',
+            found_by_query TEXT DEFAULT '',
+            fit_band    TEXT DEFAULT '',
+            matched_role_family TEXT DEFAULT '',
+            red_flags_json TEXT DEFAULT '[]',
+            metadata_json TEXT DEFAULT '{}',
+            fetched_at TEXT DEFAULT '',
             found_at    TEXT
         );
         CREATE TABLE IF NOT EXISTS funded_companies (
@@ -183,15 +249,28 @@ def save_job(job):
     conn.execute("""
         INSERT OR IGNORE INTO jobs
         (id, source, title, company, url, description, score, reason,
-         status, work_type, location, posted_at, found_at, batch_id)
+         status, work_type, location, posted_at, found_at, batch_id,
+         original_url, canonical_url, found_by_plugin, found_by_query,
+         fit_band, matched_role_family, red_flags_json, metadata_json, fetched_at)
         VALUES (:id, :source, :title, :company, :url, :description,
-                :score, :reason, :status, :work_type, :location, :posted_at, :found_at, :batch_id)
+                :score, :reason, :status, :work_type, :location, :posted_at, :found_at, :batch_id,
+                :original_url, :canonical_url, :found_by_plugin, :found_by_query,
+                :fit_band, :matched_role_family, :red_flags_json, :metadata_json, :fetched_at)
     """, {
         **job,
         "work_type": job.get("work_type", ""),
         "location": job.get("location", ""),
         "posted_at": job.get("posted_at", ""),
         "batch_id": job.get("batch_id", ""),
+        "original_url": job.get("original_url", job.get("url", "")),
+        "canonical_url": job.get("canonical_url", job.get("url", "")),
+        "found_by_plugin": job.get("found_by_plugin", ""),
+        "found_by_query": job.get("found_by_query", ""),
+        "fit_band": job.get("fit_band", ""),
+        "matched_role_family": job.get("matched_role_family", ""),
+        "red_flags_json": _json_dumps(job.get("red_flags", job.get("red_flags_json", []))),
+        "metadata_json": json.dumps(job.get("metadata", job.get("metadata_json", {}))),
+        "fetched_at": job.get("fetched_at", ""),
     })
     conn.commit()
     conn.close()
@@ -211,6 +290,7 @@ def list_jobs(status="new", limit=50, offset=0):
     placeholders = ",".join("?" * len(statuses))
     rows = conn.execute(f"""
         SELECT id, title, company, url, score, reason, source, work_type, location, found_at, status
+             , fit_band, matched_role_family, found_by_plugin, found_by_query, canonical_url
         FROM jobs WHERE status IN ({placeholders})
         ORDER BY score DESC, found_at DESC
         LIMIT ? OFFSET ?
@@ -232,7 +312,8 @@ def list_all_jobs(limit=200, offset=0, source=None, status=None):
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     params += [limit, offset]
     rows = conn.execute(f"""
-        SELECT id, title, company, url, score, reason, source, work_type, location, status, found_at
+        SELECT id, title, company, url, score, reason, source, work_type, location, status, found_at,
+               fit_band, matched_role_family, found_by_plugin, found_by_query, canonical_url
         FROM jobs {where} ORDER BY score DESC LIMIT ? OFFSET ?
     """, params).fetchall()
     conn.close()
@@ -270,7 +351,18 @@ def get_job(job_id):
     conn = get_conn()
     row = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
     conn.close()
-    return dict(row) if row else None
+    if not row:
+        return None
+    result = dict(row)
+    try:
+        result["red_flags"] = json.loads(result.get("red_flags_json") or "[]")
+    except Exception:
+        result["red_flags"] = []
+    try:
+        result["metadata"] = json.loads(result.get("metadata_json") or "{}")
+    except Exception:
+        result["metadata"] = {}
+    return result
 
 
 def set_status(job_id, status):
@@ -584,6 +676,47 @@ def update_job_score(job_id: str, score: int, reason: str, status: str = "new"):
     conn.commit()
     conn.close()
 
+
+def update_job_fit(
+    job_id: str,
+    score: int,
+    reason: str,
+    status: str = "new",
+    *,
+    fit_band: str = "",
+    matched_role_family: str = "",
+    red_flags: list | None = None,
+    metadata: dict | None = None,
+):
+    conn = get_conn()
+    conn.execute(
+        """
+        UPDATE jobs
+        SET score = ?, reason = ?, status = ?, fit_band = ?, matched_role_family = ?,
+            red_flags_json = ?, metadata_json = ?
+        WHERE id = ?
+        """,
+        (
+            score,
+            reason,
+            status,
+            fit_band,
+            matched_role_family,
+            _json_dumps(red_flags or []),
+            json.dumps(metadata or {}),
+            job_id,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def update_job_company(job_id: str, company: str):
+    conn = get_conn()
+    conn.execute("UPDATE jobs SET company = ? WHERE id = ?", (company, job_id))
+    conn.commit()
+    conn.close()
+
 def get_unscored_job_ids() -> set:
     """Return IDs of jobs saved but not yet scored (status='unscored')."""
     conn = get_conn()
@@ -671,6 +804,191 @@ def get_unscored_jobs() -> list:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def save_campaign(campaign: dict):
+    conn = get_conn()
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO campaigns
+        (id, name, prompt, role_families, aliases, avoid_terms, search_queries,
+         enabled_plugins, locations, max_yoe, metadata_json, enabled, created_at, updated_at, last_run)
+        VALUES
+        (:id, :name, :prompt, :role_families, :aliases, :avoid_terms, :search_queries,
+         :enabled_plugins, :locations, :max_yoe, :metadata_json, :enabled, :created_at, :updated_at, :last_run)
+        """,
+        {
+            "id": campaign["id"],
+            "name": campaign["name"],
+            "prompt": campaign["prompt"],
+            "role_families": _json_dumps(campaign.get("role_families", [])),
+            "aliases": _json_dumps(campaign.get("aliases", [])),
+            "avoid_terms": _json_dumps(campaign.get("avoid_terms", [])),
+            "search_queries": _json_dumps(campaign.get("search_queries", [])),
+            "enabled_plugins": _json_dumps(campaign.get("enabled_plugins", [])),
+            "locations": _json_dumps(campaign.get("locations", [])),
+            "max_yoe": campaign.get("max_yoe", 5),
+            "metadata_json": json.dumps(campaign.get("metadata", {})),
+            "enabled": campaign.get("enabled", 1),
+            "created_at": campaign.get("created_at", ""),
+            "updated_at": campaign.get("updated_at", ""),
+            "last_run": campaign.get("last_run", ""),
+        },
+    )
+    conn.commit()
+    conn.close()
+
+
+def _decode_campaign(row):
+    item = dict(row)
+    for key in (
+        "role_families",
+        "aliases",
+        "avoid_terms",
+        "search_queries",
+        "enabled_plugins",
+        "locations",
+    ):
+        try:
+            item[key] = json.loads(item.get(key) or "[]")
+        except Exception:
+            item[key] = []
+    try:
+        item["metadata"] = json.loads(item.get("metadata_json") or "{}")
+    except Exception:
+        item["metadata"] = {}
+    return item
+
+
+def get_campaign(campaign_id: str):
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM campaigns WHERE id = ?", (campaign_id,)).fetchone()
+    conn.close()
+    return _decode_campaign(row) if row else None
+
+
+def list_campaigns(enabled_only: bool = False) -> list:
+    conn = get_conn()
+    query = "SELECT * FROM campaigns"
+    params = ()
+    if enabled_only:
+        query += " WHERE enabled = ?"
+        params = (1,)
+    query += " ORDER BY updated_at DESC, created_at DESC"
+    rows = conn.execute(query, params).fetchall()
+    conn.close()
+    return [_decode_campaign(row) for row in rows]
+
+
+def touch_campaign_last_run(campaign_id: str, timestamp: str):
+    conn = get_conn()
+    conn.execute(
+        "UPDATE campaigns SET last_run = ?, updated_at = ? WHERE id = ?",
+        (timestamp, timestamp, campaign_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def set_campaign_enabled(campaign_id: str, enabled: bool):
+    conn = get_conn()
+    now = datetime.now(timezone.utc).isoformat()
+    conn.execute(
+        "UPDATE campaigns SET enabled = ?, updated_at = ? WHERE id = ?",
+        (1 if enabled else 0, now, campaign_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def save_campaign_run(run: dict):
+    conn = get_conn()
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO campaign_runs
+        (id, campaign_id, status, started_at, completed_at, summary_json)
+        VALUES (:id, :campaign_id, :status, :started_at, :completed_at, :summary_json)
+        """,
+        {
+            "id": run["id"],
+            "campaign_id": run["campaign_id"],
+            "status": run.get("status", "completed"),
+            "started_at": run.get("started_at", ""),
+            "completed_at": run.get("completed_at", ""),
+            "summary_json": json.dumps(run.get("summary", {})),
+        },
+    )
+    conn.commit()
+    conn.close()
+
+
+def add_campaign_result(campaign_id: str, run_id: str, job_id: str, found_by_plugin: str, found_by_query: str, discovered_at: str):
+    rid = hashlib.md5(f"{run_id}:{job_id}:{found_by_plugin}:{found_by_query}".encode()).hexdigest()[:24]
+    conn = get_conn()
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO campaign_results
+        (id, campaign_id, run_id, job_id, found_by_plugin, found_by_query, discovered_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        """,
+        (rid, campaign_id, run_id, job_id, found_by_plugin, found_by_query, discovered_at),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_latest_campaign_run(campaign_id: str):
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM campaign_runs WHERE campaign_id = ? ORDER BY started_at DESC LIMIT 1",
+        (campaign_id,),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    result = dict(row)
+    try:
+        result["summary"] = json.loads(result.get("summary_json") or "{}")
+    except Exception:
+        result["summary"] = {}
+    return result
+
+
+def get_campaign_results(campaign_id: str, limit: int = 50):
+    conn = get_conn()
+    rows = conn.execute(
+        """
+        SELECT j.*, cr.run_id, cr.found_by_plugin AS campaign_plugin,
+               cr.found_by_query AS campaign_query, cr.discovered_at
+        FROM campaign_results cr
+        JOIN jobs j ON j.id = cr.job_id
+        WHERE cr.campaign_id = ?
+          AND cr.run_id = (
+              SELECT id
+              FROM campaign_runs
+              WHERE campaign_id = ?
+              ORDER BY started_at DESC
+              LIMIT 1
+          )
+        ORDER BY cr.discovered_at DESC, j.score DESC
+        LIMIT ?
+        """,
+        (campaign_id, campaign_id, limit),
+    ).fetchall()
+    conn.close()
+    results = []
+    for row in rows:
+        item = dict(row)
+        try:
+            item["red_flags"] = json.loads(item.get("red_flags_json") or "[]")
+        except Exception:
+            item["red_flags"] = []
+        try:
+            item["metadata"] = json.loads(item.get("metadata_json") or "{}")
+        except Exception:
+            item["metadata"] = {}
+        results.append(item)
+    return results
 
 def _ddg_search(query: str, max_results: int = 30) -> list:
     """

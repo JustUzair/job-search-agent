@@ -127,6 +127,37 @@ export function getSources() {
   return request("GET", "/sources");
 }
 
+export function getCampaigns(includeArchived = false) {
+  const suffix = includeArchived ? "?include_archived=true" : "";
+  return request("GET", `/campaigns${suffix}`);
+}
+
+export function createCampaign(payload) {
+  return request("POST", "/campaigns", payload);
+}
+
+export function runCampaign(campaignId) {
+  return request("POST", `/campaigns/${campaignId}/run`, {});
+}
+
+export function archiveCampaign(campaignId) {
+  return request("POST", `/campaigns/${campaignId}/archive`, {});
+}
+
+export function restoreCampaign(campaignId) {
+  return request("POST", `/campaigns/${campaignId}/restore`, {});
+}
+
+export function getCampaignResults(campaignId, limit = 50) {
+  return request("GET", `/campaigns/${campaignId}/results?limit=${limit}`);
+}
+
+export function runDiscoveryPrompt(prompt, enabledPlugins = null) {
+  const payload = { prompt };
+  if (enabledPlugins) payload.enabled_plugins = enabledPlugins;
+  return request("POST", "/discovery/run", payload);
+}
+
 export function editResume(instructions, variantName = "") {
   return request("POST", "/resume/edit", {
     instructions,

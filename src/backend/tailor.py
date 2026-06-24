@@ -316,10 +316,7 @@ def apply_edits(instructions: str, variant_name: str = "") -> dict:
         files_block=files_block,
     )
 
-    original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-    os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
-    raw = llm.chat(prompt, max_tokens=16000, temperature=0.2)
-    os.environ["MODEL_NAME"] = original_model
+    raw = llm.chat(prompt, max_tokens=16000, temperature=0.35, task="tailor")
 
     raw = re.sub(r"^```[a-z]*\n?", "", raw)
     raw = re.sub(r"\n?```$", "", raw).strip()
@@ -404,10 +401,7 @@ def refine_variant(variant_id: str, feedback: str) -> dict:
         feedback=feedback.strip(),
         files_block=files_block,
     )
-    original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-    os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
-    raw = llm.chat(prompt, max_tokens=16000, temperature=0.2)
-    os.environ["MODEL_NAME"] = original_model
+    raw = llm.chat(prompt, max_tokens=16000, temperature=0.35, task="tailor")
 
     raw = re.sub(r"^```[a-z]*\n?", "", raw)
     raw = re.sub(r"\n?```$", "", raw).strip()
@@ -544,6 +538,7 @@ Rules:
 
 Reply ONLY valid JSON: {{"score": <int>, "reason": "<max 120 chars>"}}""",
         max_tokens=80,
+        task="score",
     )
     return int(data.get("score", 0)), str(data.get("reason", "no reason returned"))[:120]
 
@@ -595,13 +590,7 @@ def tailor(job_id=None, url=None, raw_jd=None, variant_name="", force=False):
 
     prompt = build_prompt(jd, title, company, files)
 
-    # Use gpt-4o / claude-sonnet for tailoring — needs more reasoning than scoring
-    original_model = os.environ.get("MODEL_NAME", "gpt-4o-mini")
-    os.environ["MODEL_NAME"] = os.environ.get("TAILOR_MODEL", original_model)
-
-    raw = llm.chat(prompt, max_tokens=16000, temperature=0.3)
-
-    os.environ["MODEL_NAME"] = original_model  # restore
+    raw = llm.chat(prompt, max_tokens=16000, temperature=0.35, task="tailor")
 
     raw = re.sub(r"^```[a-z]*\n?", "", raw)
     raw = re.sub(r"\n?```$", "", raw).strip()
