@@ -173,10 +173,6 @@ export function answerInterviewQuestions(jd, questions) {
   return request("POST", "/interview/answer", { jd, questions });
 }
 
-// export function getDdgSearchLog() {
-//   return request("GET", "/ddg-search-log");
-// }
-
 // ── Batch Scoring (local LLM, resumable) ──────────────────────────────────────
 
 export function startBatchScore() {

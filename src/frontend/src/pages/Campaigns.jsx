@@ -15,7 +15,6 @@ const PLUGINS = [
   { id: "hn", label: "HN Jobs" },
   { id: "web3", label: "Web3 Sources" },
   { id: "manual", label: "Manual URLs" },
-  { id: "ddg_optional", label: "DDG Fallback" },
 ];
 
 const DEFAULT_PROMPT =

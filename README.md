@@ -102,9 +102,12 @@ Current plugins:
 - `hn`: Hacker News hiring discovery
 - `web3`: Web3-specific discovery sources
 - `manual`: materializes user-supplied URLs
-- `ddg_optional`: optional DuckDuckGo-backed search
 
 This separation matters because the system does not treat "search" as a single monolithic LLM call. Each plugin returns concrete URLs or jobs, which are then normalized, deduplicated, filtered, and scored.
+
+Deprecated:
+
+- container-side Bing / DuckDuckGo HTML search is not part of the supported discovery path because challenge pages make it unreliable in Dockerized environments
 
 ### ATS-native sourcing
 
@@ -225,7 +228,6 @@ src/backend/
     hn.py
     web3.py
     manual.py
-    ddg_optional.py
 ```
 
 ### Frontend modules
@@ -375,7 +377,6 @@ RESEARCH_THINK=low
 OLLAMA_API_KEY=your_ollama_api_key
 ENABLE_OLLAMA_WEB_SEARCH=false
 OLLAMA_WEB_MAX_RESULTS=5
-ENABLE_DDG_SEARCH=false
 OLLAMA_CLOUD_NATIVE_JSON=false
 
 SERPER_API_KEY=
@@ -387,6 +388,7 @@ Notes:
 
 - `MODEL_PROVIDER` can target `ollama`, `openai`, or `anthropic`
 - task-specific model routing is implemented in `src/backend/llm.py`
+- supported generic search is API-backed `ollama_web`, not container-side HTML scraping of public search engines
 - outreach-related API keys are optional unless you use those features
 - some legacy env keys still exist in `.env.example`; the active app is no longer a Telegram bot
 
@@ -491,6 +493,7 @@ Current strengths:
 - real local runtime with reproducible Docker setup
 - practical UI for operating the workflow
 - deterministic evidence capture around job discovery
+- supported search paths are aligned with sources that work reliably inside Docker
 
 Current rough edges:
 

@@ -8,26 +8,74 @@ DB_PATH = os.environ.get("DB_PATH", "/app/data/jobs.db")
 
 DEFAULT_CONFIG = {
     "keywords": [
-        "rust", "axum", "rocket", "ai", "rag", "langchain", "langgraph", 
-        "next.js", "typescript", "fullstack", "backend", "solana", 
-        "smart contract", "web3 security"
+        "ai engineer",
+        "llm engineer",
+        "backend engineer",
+        "fullstack engineer",
+        "platform engineer",
+        "developer tools",
+        "solutions engineer",
+        "developer advocate",
+        "applied ai",
+        "rag",
+        "langchain",
+        "langgraph",
+        "python",
+        "typescript",
+        "next.js",
+        "node.js",
+        "react",
+        "fastapi",
+        "postgresql",
+        "docker",
+        "rust",
+        "axum",
+        "golang",
+        "solana",
+        "smart contract",
+        "solidity",
+        "blockchain",
+        "web3",
+        "protocol",
+        "infrastructure",
+        "technical content",
+        "devrel"
     ],
-    "work_type": ["remote"],
+    "work_type": ["remote", "hybrid"],
     "min_yoe": 0,
     "max_yoe": 5,
-    "exclude_locations": ["onsite US", "onsite UK", "onsite Europe", "in-office", "hybrid"],
-    "score_threshold": 60,
+    "exclude_locations": [
+        "onsite only",
+        "onsite us",
+        "onsite uk",
+        "onsite europe",
+        "in-office",
+        "relocation required"
+    ],
+    "score_threshold": 55,
     # Title substrings to instantly disqualify
     # DuckDuckGo site: search queries — used for autonomous ATS scraping.
     # Format: "<keywords> site:<ats-domain>"  (no https://)
     # Each keyword in config.keywords gets combined with each site to form a search.
     "site_search_queries": [
-        'fullstack remote site:jobs.ashbyhq.com',
-        'backend remote site:jobs.workable.com',
-        'fullstack remote site:job-boards.greenhouse.io',
-        'backend remote site:jobs.lever.co',
+        'ai engineer remote site:jobs.ashbyhq.com',
+        'backend engineer remote site:jobs.ashbyhq.com',
+        'solutions engineer remote site:jobs.ashbyhq.com',
+        'developer advocate remote site:jobs.ashbyhq.com',
+        'ai engineer remote site:jobs.lever.co',
+        'backend engineer remote site:jobs.lever.co',
+        'platform engineer remote site:jobs.lever.co',
+        'developer advocate remote site:jobs.lever.co',
+        'ai engineer remote site:job-boards.greenhouse.io',
+        'backend engineer remote site:job-boards.greenhouse.io',
+        'fullstack engineer remote site:job-boards.greenhouse.io',
+        'solutions engineer remote site:job-boards.greenhouse.io',
+        'backend engineer remote site:jobs.workable.com',
+        'fullstack engineer remote site:jobs.workable.com',
+        'platform engineer remote site:jobs.workable.com',
+        'developer tools remote site:jobs.workable.com',
     ],
-        "skip_title_patterns": [
+    "skip_title_patterns": [
         "marketing manager", "content writer", "content strategist", "seo specialist",
         "social media manager", "social media specialist", "brand manager",
         "communications manager", "pr manager", "public relations", "copywriter",
@@ -426,17 +474,16 @@ def set_config(cfg):
     conn.close()
 
 
-DEFAULT_PROFILE = """Uzair Saiyed — Full Stack & AI Engineer, 2x Global Hackathon Winner, Gujarat India, open to remote only.
+DEFAULT_PROFILE = """Uzair Saiyed — Full Stack, Applied AI, and Solutions Engineer based in India with 2+ years of experience building developer tools, AI-enabled systems, and customer-facing technical workflows.
 
-Skills: Node.js, Next.js, TypeScript, Tailwind, RAG, LangGraph, 
-LangChain, Vector Databases, Solidity, Rust (Axum), Solana, MongoDB, PostgreSQL, Docker, Vercel.
+Skills: TypeScript, Node.js, Python, Go, React, Next.js, PostgreSQL, MongoDB, Docker, Kubernetes, GitHub Actions, CI/CD, Ollama, LangChain, LangGraph, RAG, pgvector, technical documentation, integration engineering, developer tooling.
 
-Recent work: Built a local AI Smart Contract Auditor with cloud LLM integration, 
-Deployed "Tessera" (RAG AI agent), Developed real-time Rust Rocket chat room, 
-Solutions Engineering & DevRel for Web3 dev tools.
+Recent work: Built Nightlamp, a dependency security and maintenance intelligence platform spanning a CLI, backend API, web app, SDK, and AI-assisted incident workflows. Shipped AI and agentic systems including LangGraph-based execution flows and production RAG platforms. Worked directly with partner and customer engineering teams on integrations, onboarding, demos, documentation, and repeatable CI/CD workflows.
 
-Wants: Remote AI Engineering / Rust / Backend / Fullstack roles.
-Hard no: Onsite roles, Hybrid roles, pure frontend, mobile-only."""
+Background strengths: applied AI, backend/platform engineering, full-stack product delivery, solutions/forward deployed engineering, developer experience, technical writing, and infrastructure automation. Also brings security-conscious engineering and Web3 domain depth from audits, protocol integrations, and smart contract tooling.
+
+Wants: Remote or selective hybrid roles in Applied AI, AI Engineering, Backend Engineering, Platform Engineering, Full Stack Engineering, Solutions Engineering, Forward Deployed Engineering, DevRel/Developer Experience, and developer tooling.
+Hard no: onsite-only roles, pure frontend-only roles, mobile-only roles, and pure sales/support roles."""
 
 
 def get_profile() -> str:

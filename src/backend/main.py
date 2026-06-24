@@ -655,12 +655,6 @@ Answer:"""
 
     return {"answers": answers}
 
-
-@app.get("/api/ddg-search-log")
-def get_ddg_log():
-    """Return recent DDG site-search log so the UI can show what's been scraped."""
-    return db.get_ddg_search_log(limit=100)
-
 # ── Static files (React SPA) — registered LAST so API routes always win ─────
 
 FRONTEND_DIST = Path(__file__).parent.parent.parent / "src" / "frontend" / "dist"

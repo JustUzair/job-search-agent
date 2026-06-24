@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from .ats import ATSDiscovery
-from .ddg_optional import DDGOptionalDiscovery
 from .hn import HNDiscovery
 from .manual import ManualURLDiscovery
 from .ollama_web import OllamaWebDiscovery
@@ -14,7 +13,6 @@ PLUGIN_TYPES = {
     "hn": HNDiscovery,
     "web3": Web3Discovery,
     "manual": ManualURLDiscovery,
-    "ddg_optional": DDGOptionalDiscovery,
 }
 
 
