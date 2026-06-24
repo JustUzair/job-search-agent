@@ -1,6 +1,7 @@
 # OpenClaw
 
 <p align="center">
+  <img src="https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge" alt="MIT License" />
   <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.12" />
   <img src="https://img.shields.io/badge/FastAPI-Backend-009688?style=for-the-badge&logo=fastapi&logoColor=white" alt="FastAPI" />
   <img src="https://img.shields.io/badge/React-Frontend-20232A?style=for-the-badge&logo=react&logoColor=61DAFB" alt="React" />
@@ -63,7 +64,7 @@ At a practical level, OpenClaw supports five core workflows:
 
 ## Project status
 
-OpenClaw is actively usable as a personal system and is being shaped into a more public-facing OSS project. The architecture is real and end-to-end, but some repository-level OSS polish is still in progress, especially around license, contribution docs, and tests.
+OpenClaw is actively usable as a personal system and is being shaped into a more public-facing OSS project. The architecture is real and end-to-end, but some repository-level OSS polish is still in progress, especially around contribution docs and tests.
 
 ## Feature overview
 
@@ -523,4 +524,4 @@ It is especially relevant for engineers who want more control and inspectability
 
 ## License
 
-No OSS license is currently declared in this repository. If you intend to share or accept contributions publicly, add an explicit license before promoting it as open source.
+This project is licensed under the [MIT License](LICENSE).
